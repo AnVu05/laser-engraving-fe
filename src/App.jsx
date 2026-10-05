@@ -50,6 +50,7 @@ export default function App() {
 
   // Engraving Parameters
   const [feedRate, setFeedRate] = useState(1500);
+  const [acceleration, setAcceleration] = useState(1000); // GRBL $120/$121 (mm/s²)
   const [laserPower, setLaserPower] = useState(75);
   const [dpi, setDpi] = useState(254);
   const [mode, setMode] = useState('raster'); // 'raster' | 'vector'
@@ -144,6 +145,7 @@ export default function App() {
           if (s.maxPower) setLaserPower(Math.min(100, Math.round((s.maxPower / 1000) * 100)));
           if (s.defaultDpi) setDpi(s.defaultDpi);
           if (s.mode) setMode(s.mode);
+          if (s.acceleration || s.defaultAcceleration) setAcceleration(s.acceleration || s.defaultAcceleration);
         }
       })
       .catch((err) => {
@@ -195,6 +197,7 @@ export default function App() {
 
       // Cập nhật thông số từ dự án
       if (projectData.parameters?.feedRate) setFeedRate(projectData.parameters.feedRate);
+      if (projectData.parameters?.acceleration) setAcceleration(projectData.parameters.acceleration);
       if (projectData.parameters?.laserPower) setLaserPower(projectData.parameters.laserPower);
       if (projectData.parameters?.dpi) setDpi(projectData.parameters.dpi);
       if (projectData.parameters?.mode) setMode(projectData.parameters.mode);
@@ -256,6 +259,7 @@ export default function App() {
       }
 
       if (params.feedRate) setFeedRate(params.feedRate);
+      if (params.acceleration) setAcceleration(params.acceleration);
       if (params.laserPower) setLaserPower(params.laserPower);
       if (params.dpi) setDpi(params.dpi);
       if (params.mode) setMode(params.mode);
@@ -650,7 +654,7 @@ export default function App() {
   };
 
   // Nạp thông số người dùng đã điều chỉnh vào trong bo mạch điều khiển
-  const handleFlashParameters = async (targetFeed = feedRate, targetPower = laserPower) => {
+  const handleFlashParameters = async (targetFeed = feedRate, targetPower = laserPower, targetAccel = acceleration) => {
     const S_val = Math.round((targetPower / 100) * 1000);
     if (!isConnected) {
       addLog('⚠️ Bo mạch chưa kết nối. Vui lòng cắm cáp USB và nhấn nút "Kết nối máy" ở thanh trên.', 'err');
@@ -658,20 +662,23 @@ export default function App() {
     }
 
     try {
-      addLog(`[Nạp vào bo mạch] Đang ghi cấu hình vào EEPROM & Modal: F${targetFeed} mm/phút, S${S_val} (${targetPower}%)...`, 'cmd');
+      addLog(`[Nạp vào bo mạch] Đang ghi cấu hình vào EEPROM & Modal: F${targetFeed} mm/phút, A${targetAccel} mm/s², S${S_val} (${targetPower}%)...`, 'cmd');
       // 1. Lưu cấu hình tốc độ tối đa trục X/Y vào bộ nhớ EEPROM vĩnh viễn của bo mạch ($110, $111)
       await grblSerial.sendCommand(`$110=${targetFeed}`);
       await grblSerial.sendCommand(`$111=${targetFeed}`);
-      // 2. Cấu hình thang đo công suất tối đa $30=1000 và Laser Mode $32=1 vào EEPROM
+      // 2. Lưu cấu hình gia tốc trục X/Y vào bộ nhớ EEPROM vĩnh viễn của bo mạch ($120, $121)
+      await grblSerial.sendCommand(`$120=${targetAccel}`);
+      await grblSerial.sendCommand(`$121=${targetAccel}`);
+      // 3. Cấu hình thang đo công suất tối đa $30=1000 và Laser Mode $32=1 vào EEPROM
       await grblSerial.sendCommand('$30=1000');
       await grblSerial.sendCommand('$32=1');
-      // 3. Ghi tốc độ mặc định và công suất vào Parser Modal của GRBL
+      // 4. Ghi tốc độ mặc định và công suất vào Parser Modal của GRBL
       await grblSerial.sendCommand(`G1 F${targetFeed}`);
       await grblSerial.sendCommand(`S${S_val}`);
-      // 4. Đọc lại để kiểm tra đồng bộ
+      // 5. Đọc lại để kiểm tra đồng bộ
       await grblSerial.sendCommand('$G');
 
-      addLog(`✓ ĐÃ GHI VÀO EEPROM BO MẠCH: Tốc độ định mức $110/$111=${targetFeed} mm/phút, Công suất Laser S${S_val} (${targetPower}%)`, 'sys');
+      addLog(`✓ ĐÃ GHI VÀO EEPROM BO MẠCH: Tốc độ $110/$111=${targetFeed} mm/phút, Gia tốc $120/$121=${targetAccel} mm/s², Công suất Laser S${S_val} (${targetPower}%)`, 'sys');
       return true;
     } catch (err) {
       addLog(`Lỗi khi nạp thông số vào bo mạch: ${err.message}`, 'err');
@@ -870,8 +877,11 @@ export default function App() {
       '; PhotonCraft GRBL Web Controller - Laser Studio',
       `; Số lượng đối tượng gia công: ${elements.length}`,
       `; Tốc độ Feed rate: ${feedRate} mm/min`,
+      `; Gia tốc cấu hình: ${acceleration} mm/s² ($120/$121)`,
       `; Công suất Laser PWM: ${laserPower}% (S${S_val})`,
       '; ========================================================',
+      `$120=${acceleration} ; Cấu hình gia tốc trục X (mm/s²)`,
+      `$121=${acceleration} ; Cấu hình gia tốc trục Y (mm/s²)`,
       '$32=1       ; Bật Laser Mode chuẩn GRBL',
       'G21         ; Đơn vị tọa độ milimét',
       'G90         ; Tọa độ tuyệt đối',
@@ -959,7 +969,7 @@ export default function App() {
     ];
 
     return [...header, ...body, ...footer].join('\n');
-  }, [elements, mode, feedRate, laserPower, dpi, processedArtwork]);
+  }, [elements, mode, feedRate, acceleration, laserPower, dpi, processedArtwork]);
 
   // Cập nhật thống kê dòng lệnh và thời gian ước tính thật khi thay đổi thiết kế
   useEffect(() => {
@@ -1286,6 +1296,7 @@ export default function App() {
       elements: JSON.parse(JSON.stringify(elements)),
       parameters: {
         feedRate,
+        acceleration,
         laserPower,
         dpi,
         mode
@@ -1394,6 +1405,8 @@ export default function App() {
                 fileInputRef={fileInputRef}
                 feedRate={feedRate}
                 setFeedRate={setFeedRate}
+                acceleration={acceleration}
+                setAcceleration={setAcceleration}
                 laserPower={laserPower}
                 setLaserPower={setLaserPower}
                 dpi={dpi}
@@ -1479,6 +1492,8 @@ export default function App() {
           <LaserParametersView
             feedRate={feedRate}
             setFeedRate={setFeedRate}
+            acceleration={acceleration}
+            setAcceleration={setAcceleration}
             laserPower={laserPower}
             setLaserPower={setLaserPower}
             dpi={dpi}

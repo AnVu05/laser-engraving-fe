@@ -106,6 +106,12 @@ const SPEED_PRESETS = [
   { id: 'high', label: 'High speed', speed: 3000, hint: '3000 mm/phút' }
 ];
 
+const ACCEL_PRESETS = [
+  { id: 'soft', label: 'Êm ái', accel: 500, hint: '500 mm/s² — Giảm rung chấn, triệt tiêu bóng ma / ghosting' },
+  { id: 'std', label: 'Tiêu chuẩn', accel: 1000, hint: '1000 mm/s² — Chuẩn khuyến nghị cho bo mạch MKS DLC32' },
+  { id: 'fast', label: 'Tốc độ cao', accel: 2000, hint: '2000 mm/s² — Tăng tốc dứt khoát, tối ưu thời gian quét raster' }
+];
+
 const POWER_PRESETS = [
   { pct: 0, s: 0, label: '0%', hint: 'Tắt laser (S0)' },
   { pct: 0.5, s: 5, label: '0.5%', hint: 'Tia định vị / Lấy nét yếu (S5)' },
@@ -118,6 +124,8 @@ const POWER_PRESETS = [
 export default function LaserParametersView({
   feedRate,
   setFeedRate,
+  acceleration = 1000,
+  setAcceleration,
   laserPower,
   setLaserPower,
   dpi,
@@ -142,11 +150,11 @@ export default function LaserParametersView({
     if (!onFlashParameters) return;
     setIsFlashing(true);
     setFlashSuccess(false);
-    const ok = await onFlashParameters(feedRate, laserPower);
+    const ok = await onFlashParameters(feedRate, laserPower, acceleration);
     setIsFlashing(false);
     if (ok) {
       setFlashSuccess(true);
-      setFeedbackMsg(`✓ Đã nạp thành công thông số (F${feedRate}, ${laserPower}%) vào bo mạch!`);
+      setFeedbackMsg(`✓ Đã nạp thành công thông số (F${feedRate}, A${acceleration} mm/s², ${laserPower}%) vào bo mạch!`);
       setTimeout(() => {
         setFlashSuccess(false);
         setFeedbackMsg('');
@@ -488,6 +496,55 @@ export default function LaserParametersView({
               </span>
             </div>
 
+            {/* Box: Acceleration ($120/$121) */}
+            <div className="tuning-box-card">
+              <div className="tuning-box-header">
+                <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#8b5cf6' }}>
+                  rocket_launch
+                </span>
+                <h4>Gia tốc động cơ (Acceleration - $120/$121)</h4>
+              </div>
+              <p>Quy định gia tốc trục X-Y tính bằng mm/s² trong GRBL, giảm rung cơ khí và thời gian đổi chiều</p>
+
+              {/* 3 Mức chuẩn phần cứng */}
+              <div className="speed-preset-grid" style={{ marginBottom: 8 }}>
+                {ACCEL_PRESETS.map((preset) => {
+                  const isActive = acceleration === preset.accel;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      className={`speed-preset-btn ${isActive ? 'active' : ''}`}
+                      onClick={() => setAcceleration && setAcceleration(preset.accel)}
+                      title={preset.hint}
+                    >
+                      <span className="speed-preset-name">{preset.label}</span>
+                      <span className="speed-preset-val">{preset.accel} <small>mm/s²</small></span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="tuning-control-row">
+                <input
+                  type="range"
+                  min="100"
+                  max="5000"
+                  step="100"
+                  className="power-range-input"
+                  value={acceleration}
+                  onChange={(e) => setAcceleration && setAcceleration(parseInt(e.target.value) || 100)}
+                />
+                <div className="tuning-input-badge">
+                  <span>{acceleration}</span>
+                  <small>mm/s²</small>
+                </div>
+              </div>
+              <span className="tuning-hint-text">
+                Khuyên dùng: 500 mm/s² (êm ái, chống rung), 1000 mm/s² (chuẩn MKS DLC32), 2000 mm/s² (tốc độ cao)
+              </span>
+            </div>
+
             {/* Box 2: Laser Power PWM */}
             <div className="tuning-box-card">
               <div className="tuning-box-header">
@@ -639,6 +696,10 @@ export default function LaserParametersView({
             <h4>Tiêu chuẩn An toàn Laser CNC GRBL v1.1</h4>
           </div>
           <ul className="safety-items-list">
+            <li>
+              <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--success)' }}>check_circle</span>
+              <span>Gia tốc <strong>$120 / $121</strong> được đồng bộ chuẩn xác để hạn chế hiện tượng gián đoạn và quá tải động cơ bước.</span>
+            </li>
             <li>
               <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--success)' }}>check_circle</span>
               <span>Lệnh <strong>$32=1 (Laser Mode)</strong> luôn được bật tự động để ngăn cháy phôi khi đầu máy dừng.</span>

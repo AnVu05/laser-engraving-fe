@@ -6,6 +6,12 @@ const SPEED_PRESETS = [
   { id: 'high', label: 'High speed', speed: 3000, hint: '3000 mm/phút' }
 ];
 
+const ACCEL_PRESETS = [
+  { id: 'soft', label: 'Êm ái', accel: 500, hint: '500 mm/s² — Giảm rung chấn, triệt tiêu bóng ma / ghosting' },
+  { id: 'std', label: 'Tiêu chuẩn', accel: 1000, hint: '1000 mm/s² — Chuẩn khuyến nghị cho bo mạch MKS DLC32' },
+  { id: 'fast', label: 'Tốc độ cao', accel: 2000, hint: '2000 mm/s² — Tăng tốc dứt khoát, tối ưu thời gian quét raster' }
+];
+
 const POWER_PRESETS = [
   { pct: 0, s: 0, label: '0%', hint: 'Tắt tia laser (S0)' },
   { pct: 0.5, s: 5, label: '0.5%', hint: 'Tia định vị / Lấy nét yếu (S5)' },
@@ -29,6 +35,8 @@ export default function ParameterPanel({
   fileInputRef,
   feedRate,
   setFeedRate,
+  acceleration = 1000,
+  setAcceleration,
   laserPower,
   setLaserPower,
   dpi,
@@ -60,7 +68,7 @@ export default function ParameterPanel({
     if (onFlashParameters) {
       setIsFlashing(true);
       setFlashStatus(null);
-      const ok = await onFlashParameters(feedRate, laserPower);
+      const ok = await onFlashParameters(feedRate, laserPower, acceleration);
       setIsFlashing(false);
       if (ok) {
         setFlashStatus('success');
@@ -634,7 +642,6 @@ export default function ParameterPanel({
               <span>{isConnected ? 'Bo mạch Online' : 'Chưa kết nối'}</span>
             </div>
           </div>
-          <p>Khớp chuẩn màn hình phần cứng (Low/Mid/High, 0.1/1/10mm, 0%–100%)</p>
         </div>
 
         {/* Feed Rate (Speed) - Hardware Presets: Low speed, Mid speed, High speed */}
@@ -681,6 +688,53 @@ export default function ParameterPanel({
               title="Nhập tốc độ chạy tùy chỉnh (F mm/phút)"
             />
             <span className="feed-rate-unit">mm/phút</span>
+          </div>
+        </div>
+
+        {/* Acceleration - Hardware Presets: Êm ái (500), Tiêu chuẩn (1000), Tốc độ cao (2000) */}
+        <div className="form-group">
+          <div className="form-label-row">
+            <label className="section-label">Gia tốc động cơ (Acceleration)</label>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--secondary)' }}>
+              {acceleration} mm/s²
+            </span>
+          </div>
+
+          {/* 3 Mức chuẩn phần cứng cho gia tốc MKS DLC32 / GRBL */}
+          <div className="speed-preset-grid">
+            {ACCEL_PRESETS.map((preset) => {
+              const isActive = acceleration === preset.accel;
+              return (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className={`speed-preset-btn ${isActive ? 'active' : ''}`}
+                  onClick={() => setAcceleration && setAcceleration(preset.accel)}
+                  title={preset.hint}
+                >
+                  <span className="speed-preset-name">{preset.label}</span>
+                  <span className="speed-preset-val">{preset.accel} <small>mm/s²</small></span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Ô nhập thông số gia tốc chi tiết */}
+          <div className="feed-rate-box" style={{ marginTop: 6 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--secondary)' }}>
+              rocket_launch
+            </span>
+            <input
+              type="number"
+              min="100"
+              max="5000"
+              step="100"
+              className="feed-rate-input"
+              value={acceleration}
+              onChange={(e) => setAcceleration && setAcceleration(Math.max(100, Math.min(5000, parseInt(e.target.value) || 100)))}
+              title="Nhập gia tốc trục X/Y tùy chỉnh ($120/$121 mm/s²)"
+            />
+            <span className="feed-rate-unit">mm/s²</span>
           </div>
         </div>
 
@@ -735,61 +789,6 @@ export default function ParameterPanel({
               <span>100% (Tối đa)</span>
             </div>
           </div>
-
-          {/* Nút Bật / Tắt tia laser thử nghiệm phần cứng */}
-          {onToggleTestLaser && (
-            <button
-              type="button"
-              className={`btn-test-laser ${isTestLaserOn ? 'firing' : ''}`}
-              onClick={onToggleTestLaser}
-              disabled={!isConnected}
-              style={{ marginTop: 6 }}
-              title={
-                !isConnected
-                  ? 'Vui lòng cắm cáp USB và kết nối máy trước khi thử tia'
-                  : isTestLaserOn
-                  ? 'Nhấp để tắt tia laser thử nghiệm (M5)'
-                  : `Phát tia laser mức ${laserPower}% (M3 S${Math.round((laserPower / 100) * 1000)}) để kiểm tra hoặc lấy nét thực tế`
-              }
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-                {isTestLaserOn ? 'flash_off' : 'flash_on'}
-              </span>
-              <span>
-                {isTestLaserOn
-                  ? 'Đang phát tia thử — Nhấp để Tắt'
-                  : `Bật tia thử trên máy thật (${laserPower}%)`}
-              </span>
-            </button>
-          )}
-        </div>
-
-        {/* Nạp thông số vào bo mạch điều khiển GRBL */}
-        <div className="form-group" style={{ marginTop: 8 }}>
-          <button
-            type="button"
-            className={`btn-flash-board ${flashStatus === 'success' ? 'success' : flashStatus === 'error' ? 'error' : ''}`}
-            onClick={handleTriggerFlash}
-            disabled={isFlashing}
-            title={
-              isConnected
-                ? `Nạp thông số F${feedRate} và S${Math.round((laserPower / 100) * 1000)} vào bộ nhớ bo mạch`
-                : 'Vui lòng kết nối cổng COM bo mạch ở thanh trên trước khi nạp thông số'
-            }
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
-              {isFlashing ? 'sync' : flashStatus === 'success' ? 'check_circle' : 'memory'}
-            </span>
-            <span>
-              {isFlashing
-                ? 'Đang nạp vào bo mạch...'
-                : flashStatus === 'success'
-                ? '✓ Đã nạp vào bo mạch thành công!'
-                : flashStatus === 'error'
-                ? '⚠️ Chưa kết nối bo mạch!'
-                : 'Nạp thông số vào bo mạch'}
-            </span>
-          </button>
         </div>
 
         {/* DPI / Scan Line Density */}

@@ -485,50 +485,6 @@ export default function GCodeModal({
                   </span>
                 </div>
               </div>
-
-              {/* Pre-flight Checklist */}
-              <div style={{
-                marginTop: 14,
-                padding: '12px 16px',
-                backgroundColor: 'var(--surface-container-low)',
-                borderRadius: 8,
-                border: '1px solid rgba(195, 198, 215, 0.4)'
-              }}>
-                <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 8, color: 'var(--on-surface)' }}>
-                  🛡️ BẢNG THẨM ĐỊNH TỰ ĐỘNG (PRE-FLIGHT CHECKLIST):
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 6, fontSize: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: analysis.isWithinBounds ? '#22c55e' : '#ef4444' }}>
-                      {analysis.isWithinBounds ? 'check_circle' : 'cancel'}
-                    </span>
-                    <span>
-                      Vùng làm việc: <strong>{analysis.isWithinBounds ? 'Nằm an toàn trong 300 × 200 mm' : 'CẢNH BÁO: Vượt khổ máy!'}</strong>
-                    </span>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: analysis.hasLaserMode ? '#22c55e' : '#eab308' }}>
-                      {analysis.hasLaserMode ? 'check_circle' : 'warning'}
-                    </span>
-                    <span>Chế độ GRBL: <strong>$32=1 (Laser Mode chuẩn)</strong></span>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: analysis.hasSafeM5End ? '#22c55e' : '#eab308' }}>
-                      {analysis.hasSafeM5End ? 'check_circle' : 'warning'}
-                    </span>
-                    <span>Bảo vệ phôi: <strong>Có lệnh M5 tắt chùm tia an toàn</strong></span>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#22c55e' }}>
-                      check_circle
-                    </span>
-                    <span>Hệ tọa độ: <strong>G90 Tuyệt đối (G21 milimét)</strong></span>
-                  </div>
-                </div>
-              </div>
             </div>
           )}
 
@@ -543,26 +499,6 @@ export default function GCodeModal({
               </pre>
             </div>
           )}
-
-          {/* Quick Help Banner */}
-          <div style={{
-            marginTop: 12,
-            padding: '8px 12px',
-            backgroundColor: 'rgba(37, 99, 235, 0.08)',
-            borderRadius: 6,
-            fontSize: 11,
-            color: 'var(--primary-container)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6
-          }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-              info
-            </span>
-            <span>
-              <strong>Mẹo kiểm tra độc lập:</strong> Bạn có thể tải file <code>.nc</code> về và nạp vào <strong>LaserGRBL</strong> hoặc trang web <strong>ncviewer.com</strong> để soi 3D đường tia laser trước khi đưa vào máy khắc thực tế.
-            </span>
-          </div>
         </div>
 
         {/* Modal Footer */}
