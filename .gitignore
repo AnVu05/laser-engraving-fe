@@ -1,0 +1,136 @@
+# ==========================================
+# 1. Dependencies & Package Managers
+# ==========================================
+node_modules/
+.pnp/
+.pnp.js
+.pnpm-store/
+.npm/
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yaml
+.yarn/install-state.gz
+
+# ==========================================
+# 2. Production Build & Distribution
+# ==========================================
+dist/
+dist-ssr/
+build/
+out/
+*.local
+
+# Bundle analysis & build reports
+stats.json
+report.html
+
+# ==========================================
+# 3. Environment Variables & Secrets (Security)
+# ==========================================
+.env
+.env.*
+!.env.example
+!.env.template
+
+# ==========================================
+# 4. Logs & Debugging
+# ==========================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ==========================================
+# 5. Testing & Code Coverage
+# ==========================================
+coverage/
+.nyc_output/
+test-results/
+.vitest/
+.jest/
+playwright-report/
+blob-report/
+cypress/videos/
+cypress/screenshots/
+
+# ==========================================
+# 6. Caches & Tooling Artifacts
+# ==========================================
+.cache/
+.eslintcache
+.stylelintcache
+.prettiercache
+.tsbuildinfo
+*.tsbuildinfo
+.vite/
+.parcel-cache/
+
+# ==========================================
+# 7. Editor & IDE Settings
+# ==========================================
+# Visual Studio Code
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# JetBrains (WebStorm, IntelliJ IDEA, etc.)
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Visual Studio
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.user
+*.userosv
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim / Emacs
+*~
+*.swp
+*.swo
+*.sw?
+
+# ==========================================
+# 8. Operating System Metadata
+# ==========================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.fuse_hidden*
+.directory
+.Trash-*
+
+# ==========================================
+# 9. Temporary & Backup Files
+# ==========================================
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
