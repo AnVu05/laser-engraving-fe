@@ -282,29 +282,32 @@ export default function App() {
     }
   }, [addLog]);
 
-  // Tự động kiểm tra phiên đăng nhập đã lưu trong trình duyệt khi khởi chạy
+  // Tự động kiểm tra phiên đăng nhập bằng HttpOnly Cookie khi khởi chạy ứng dụng
   useEffect(() => {
-    const token = localStorage.getItem('laser_auth_token') || localStorage.getItem('token');
     const savedEmail = localStorage.getItem('laser_user_email');
-    if (token && savedEmail && savedEmail !== 'undefined') {
-      authApi.getMe(savedEmail)
-        .then((res) => {
-          if (res?.data) {
-            setCurrentUser(res.data);
-            addLog(`Chào mừng trở lại! Đã đăng nhập: ${res.data.email}`, 'sys');
-          }
-        })
-        .catch(() => {
-          localStorage.removeItem('laser_auth_token');
-          localStorage.removeItem('token');
-          localStorage.removeItem('laser_user_email');
-          localStorage.removeItem('laser_user_name');
-        });
-    }
+    authApi.getMe(savedEmail && savedEmail !== 'undefined' ? savedEmail : undefined)
+      .then((res) => {
+        if (res?.data) {
+          setCurrentUser(res.data);
+          addLog(`Chào mừng trở lại! Đã đăng nhập: ${res.data.email}`, 'sys');
+        }
+      })
+      .catch(() => {
+        localStorage.removeItem('laser_auth_token');
+        localStorage.removeItem('token');
+        localStorage.removeItem('laser_user_email');
+        localStorage.removeItem('laser_user_name');
+        setCurrentUser(null);
+      });
   }, [addLog]);
 
-  // Xử lý đăng xuất tài khoản an toàn
-  const handleLogout = useCallback(() => {
+  // Xử lý đăng xuất tài khoản an toàn: Gọi API xóa HttpOnly Cookie trên server
+  const handleLogout = useCallback(async () => {
+    try {
+      await authApi.logout();
+    } catch (err) {
+      console.warn('Lỗi khi gọi logout từ máy chủ:', err);
+    }
     localStorage.removeItem('laser_auth_token');
     localStorage.removeItem('token');
     localStorage.removeItem('laser_user_email');
@@ -315,7 +318,7 @@ export default function App() {
     setSelectedId(null);
     setProcessedArtwork(null);
     setActiveProject(null);
-    addLog('[Tài khoản] Đã đăng xuất thành công. Trở về bàn làm việc mới (Khách vãng lai).', 'sys');
+    addLog('[Tài khoản] Đã đăng xuất thành công (HttpOnly Cookie đã được thu hồi). Trở về bàn làm việc mới (Khách vãng lai).', 'sys');
   }, [addLog]);
 
   // Update element handler

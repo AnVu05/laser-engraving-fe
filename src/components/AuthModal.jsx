@@ -68,47 +68,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
     }
   };
 
-  // Google Fast Auth Handler
-  const handleGoogleAuth = async () => {
-    setIsLoading(true);
-    setMessage({
-      type: 'success',
-      text: 'Đang kết nối xác thực Google OAuth 2.0 (@gmail.com)...'
-    });
 
-    try {
-      const res = await authApi.googleAuth('operator.laser@gmail.com', 'Laser Operator', 'google-oauth-default');
-      if (res.data?.token) {
-        localStorage.setItem('laser_auth_token', res.data.token);
-        localStorage.setItem('laser_user_email', res.data?.user?.email || 'operator.laser@gmail.com');
-        localStorage.setItem('laser_user_name', res.data?.user?.username || 'Laser Operator');
-      }
-      setTimeout(() => {
-        if (onAuthSuccess) {
-          onAuthSuccess({
-            email: res.data?.user?.email || 'operator.laser@gmail.com',
-            name: res.data?.user?.username || 'Laser Operator',
-            provider: 'google'
-          });
-        }
-        onClose();
-      }, 1000);
-    } catch (err) {
-      // Fallback nếu backend chưa chạy
-      setTimeout(() => {
-        if (onAuthSuccess) {
-          onAuthSuccess({
-            email: 'operator.laser@gmail.com',
-            name: 'Laser Operator',
-            provider: 'google'
-          });
-        }
-        onClose();
-      }, 1000);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   // Sign In Handler
   const handleSignIn = async (e) => {
@@ -132,8 +92,8 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
     setIsLoading(true);
     try {
       const res = await authApi.login(email, loginPassword);
-      if (res.data?.token) {
-        localStorage.setItem('laser_auth_token', res.data.token);
+      if (res.data) {
+        // Token được lưu an toàn trong HttpOnly Cookie bởi Backend (chống XSS)
         localStorage.setItem('laser_user_email', res.data?.user?.email || email);
         localStorage.setItem('laser_user_name', res.data?.user?.username || email.split('@')[0]);
       }
@@ -192,9 +152,10 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
       setCountdown(59);
       setCanResend(false);
       setView('otp');
+      const otpCodeInfo = res.data?.otpCode ? ` (Mã OTP xác thực: ${res.data.otpCode})` : '';
       setMessage({
         type: 'success',
-        text: res.message || `Mã OTP xác thực 6 chữ số đã được gửi tới ${email}`
+        text: (res.message || `Mã OTP xác thực 6 chữ số đã được gửi tới ${email}`) + otpCodeInfo
       });
       setTimeout(() => otpInputRefs.current[0]?.focus(), 150);
     } catch (err) {
@@ -247,21 +208,13 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
       const res = await authApi.resendOtp(otpTargetEmail);
       setCountdown(59);
       setCanResend(false);
+      const otpCodeInfo = res.data?.otpCode ? ` (Mã OTP mới: ${res.data.otpCode})` : '';
       setMessage({
         type: 'success',
-        text: res.message || `Đã gửi lại mã OTP mới tới ${otpTargetEmail}!`
+        text: (res.message || `Đã gửi lại mã OTP mới tới ${otpTargetEmail}!`) + otpCodeInfo
       });
     } catch (err) {
-      if (err.message && err.message.includes('Không thể kết nối')) {
-        setCountdown(59);
-        setCanResend(false);
-        setMessage({
-          type: 'success',
-          text: `[Chế độ demo] Mã OTP mới mẫu là: 123456`
-        });
-      } else {
-        setMessage({ type: 'error', text: err.message });
-      }
+      setMessage({ type: 'error', text: err.message || 'Không thể gửi lại mã OTP. Vui lòng thử lại!' });
     } finally {
       setIsLoading(false);
     }
@@ -282,8 +235,8 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
     setIsLoading(true);
     try {
       const res = await authApi.verifyOtp(otpTargetEmail, code);
-      if (res.data?.token) {
-        localStorage.setItem('laser_auth_token', res.data.token);
+      if (res.data) {
+        // Token được lưu an toàn trong HttpOnly Cookie bởi Backend (chống XSS)
         localStorage.setItem('laser_user_email', res.data?.user?.email || otpTargetEmail);
         localStorage.setItem('laser_user_name', res.data?.user?.username || otpTargetEmail.split('@')[0]);
       }
@@ -302,24 +255,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
         onClose();
       }, 1000);
     } catch (err) {
-      if (err.message && err.message.includes('Không thể kết nối') && code === '123456') {
-        setMessage({
-          type: 'success',
-          text: 'Xác thực tài khoản thành công (Chế độ offline)! Đang đăng nhập...'
-        });
-        setTimeout(() => {
-          if (onAuthSuccess) {
-            onAuthSuccess({
-              email: otpTargetEmail,
-              name: otpTargetEmail.split('@')[0],
-              provider: 'gmail_otp'
-            });
-          }
-          onClose();
-        }, 1000);
-      } else {
-        setMessage({ type: 'error', text: err.message });
-      }
+      setMessage({ type: 'error', text: err.message || 'Mã xác thực OTP không chính xác hoặc đã hết hạn!' });
     } finally {
       setIsLoading(false);
     }
@@ -489,61 +425,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
         {/* ===================== VIEW 1: SIGN IN ===================== */}
         {view === 'signin' && (
           <div>
-            {/* Google OAuth Quick Sign In */}
-            <button
-              type="button"
-              onClick={handleGoogleAuth}
-              style={{
-                width: '100%',
-                height: 38,
-                backgroundColor: '#ffffff',
-                border: '1px solid #c3c6d7',
-                borderRadius: 8,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 10,
-                cursor: 'pointer',
-                fontSize: 12,
-                fontWeight: 600,
-                color: '#0b1c30',
-                transition: 'all 0.15s ease',
-                boxShadow: '0 1px 2px rgba(11, 28, 48, 0.04)'
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#eff4ff')}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#ffffff')}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24">
-                <path d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z" fill="#4285F4"/>
-                <path d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z" fill="#34A853"/>
-                <path d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z" fill="#FBBC05"/>
-                <path d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z" fill="#EA4335"/>
-              </svg>
-              <span>Tiếp tục với Google</span>
-            </button>
-
-            {/* Divider */}
-            <div style={{ position: 'relative', margin: '14px 0', textAlign: 'center' }}>
-              <div style={{ height: 1, backgroundColor: 'rgba(195, 198, 215, 0.45)', width: '100%' }} />
-              <span 
-                style={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: '50%',
-                  transform: 'translate(-50%, -50%)',
-                  backgroundColor: '#ffffff',
-                  padding: '0 10px',
-                  fontSize: 10,
-                  fontFamily: 'var(--font-mono, monospace)',
-                  color: '#737686',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.04em'
-                }}
-              >
-                Hoặc đăng nhập bằng Gmail
-              </span>
-            </div>
-
             <form onSubmit={handleSignIn} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#434655', marginBottom: 4 }}>
@@ -556,7 +437,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
                   <input
                     type="email"
                     required
-                    placeholder="operator.laser@gmail.com"
+                    placeholder="username@gmail.com"
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
                     style={{
@@ -673,34 +554,23 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
                 </span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginEmail('demo@gmail.com');
-                  setLoginPassword('Laser@123');
-                }}
-                style={{
-                  width: '100%',
-                  height: 32,
-                  borderRadius: 6,
-                  backgroundColor: 'rgba(37, 99, 235, 0.08)',
-                  border: '1px dashed #2563eb',
-                  color: '#2563eb',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6
-                }}
-                title="Tự động điền email và mật khẩu của tài khoản demo đã seed trong SQL Server"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>
-                  bolt
-                </span>
-                <span>Điền nhanh Demo: demo@gmail.com / Laser@123</span>
-              </button>
+              <div style={{ textAlign: 'center', marginTop: 10, fontSize: 12, color: '#565e74' }}>
+                <span>Chưa có tài khoản Gmail? </span>
+                <button
+                  type="button"
+                  onClick={() => { setView('register'); setMessage(null); }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#2563eb',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    padding: 0
+                  }}
+                >
+                  Đăng ký ngay
+                </button>
+              </div>
             </form>
           </div>
         )}
@@ -708,61 +578,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
         {/* ===================== VIEW 2: REGISTER ===================== */}
         {view === 'register' && (
           <div>
-            {/* Google Fast Register */}
-            <button
-              type="button"
-              onClick={handleGoogleAuth}
-              style={{
-                width: '100%',
-                height: 38,
-                backgroundColor: '#ffffff',
-                border: '1px solid #c3c6d7',
-                borderRadius: 8,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 10,
-                cursor: 'pointer',
-                fontSize: 12,
-                fontWeight: 600,
-                color: '#0b1c30',
-                transition: 'all 0.15s ease',
-                boxShadow: '0 1px 2px rgba(11, 28, 48, 0.04)'
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#eff4ff')}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#ffffff')}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24">
-                <path d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z" fill="#4285F4"/>
-                <path d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z" fill="#34A853"/>
-                <path d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z" fill="#FBBC05"/>
-                <path d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z" fill="#EA4335"/>
-              </svg>
-              <span>Đăng ký nhanh với Google</span>
-            </button>
-
-            {/* Divider */}
-            <div style={{ position: 'relative', margin: '14px 0', textAlign: 'center' }}>
-              <div style={{ height: 1, backgroundColor: 'rgba(195, 198, 215, 0.45)', width: '100%' }} />
-              <span 
-                style={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: '50%',
-                  transform: 'translate(-50%, -50%)',
-                  backgroundColor: '#ffffff',
-                  padding: '0 10px',
-                  fontSize: 10,
-                  fontFamily: 'var(--font-mono, monospace)',
-                  color: '#737686',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.04em'
-                }}
-              >
-                Hoặc đăng ký bằng Gmail
-              </span>
-            </div>
-
             <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#434655', marginBottom: 4 }}>
@@ -775,7 +590,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
                   <input
                     type="email"
                     required
-                    placeholder="operator.laser@gmail.com"
+                    placeholder="username@gmail.com"
                     value={regEmail}
                     onChange={(e) => handleRegEmailChange(e.target.value)}
                     style={{
@@ -907,6 +722,24 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
                   {isLoading ? 'sync' : 'send'}
                 </span>
               </button>
+
+              <div style={{ textAlign: 'center', marginTop: 10, fontSize: 12, color: '#565e74' }}>
+                <span>Đã có tài khoản Gmail? </span>
+                <button
+                  type="button"
+                  onClick={() => { setView('signin'); setMessage(null); }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#2563eb',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    padding: 0
+                  }}
+                >
+                  Đăng nhập ngay
+                </button>
+              </div>
             </form>
           </div>
         )}
@@ -1136,7 +969,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
           <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#2563eb' }}>
             lock
           </span>
-          <span>Bảo mật AES-256 & Google OAuth 2.0</span>
+          <span>Bảo mật HttpOnly Cookie & Chuẩn xác thực RFC 7519 JWT</span>
         </div>
       </div>
     </div>

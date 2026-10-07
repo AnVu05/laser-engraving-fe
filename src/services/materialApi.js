@@ -10,14 +10,10 @@ async function request(endpoint, options = {}) {
     ...(options.headers || {})
   };
 
-  const token = localStorage.getItem('laser_auth_token');
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
   try {
     const res = await fetch(url, {
       ...options,
+      credentials: 'include',
       headers
     });
     const data = await res.json();

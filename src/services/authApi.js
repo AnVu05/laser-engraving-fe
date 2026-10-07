@@ -10,14 +10,10 @@ async function request(endpoint, options = {}) {
     ...(options.headers || {})
   };
 
-  const token = localStorage.getItem('laser_auth_token');
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
   try {
     const res = await fetch(url, {
       ...options,
+      credentials: 'include',
       headers
     });
     const data = await res.json();
@@ -47,7 +43,7 @@ export const authApi = {
   },
 
   /**
-   * Xác thực mã OTP 6 số để kích hoạt tài khoản
+   * Xác thực mã OTP 6 số để kích hoạt tài khoản (Backend thiết lập HttpOnly cookie)
    */
   async verifyOtp(email, otp) {
     return request('/verify-otp', {
@@ -67,7 +63,7 @@ export const authApi = {
   },
 
   /**
-   * Đăng nhập với Gmail & Mật khẩu
+   * Đăng nhập với Gmail & Mật khẩu (Backend thiết lập HttpOnly cookie)
    */
   async login(email, password) {
     return request('/login', {
@@ -77,7 +73,7 @@ export const authApi = {
   },
 
   /**
-   * Đăng nhập hoặc đăng ký nhanh thông qua Google OAuth
+   * Đăng nhập hoặc đăng ký nhanh thông qua Google OAuth (Backend thiết lập HttpOnly cookie)
    */
   async googleAuth(email, name, googleId) {
     return request('/google', {
@@ -87,14 +83,20 @@ export const authApi = {
   },
 
   /**
-   * Lấy thông tin tài khoản hiện tại
+   * Đăng xuất an toàn: Yêu cầu Backend thu hồi và xoá HttpOnly cookie
+   */
+  async logout() {
+    return request('/logout', {
+      method: 'POST'
+    });
+  },
+
+  /**
+   * Lấy thông tin tài khoản hiện tại từ HttpOnly cookie hoặc email
    */
   async getMe(email) {
-    const targetEmail = email || localStorage.getItem('laser_user_email');
-    if (!targetEmail || targetEmail === 'undefined') {
-      throw new Error('Chưa có thông tin email để truy vấn tài khoản.');
-    }
-    return request(`/me?email=${encodeURIComponent(targetEmail)}`, {
+    const endpoint = email ? `/me?email=${encodeURIComponent(email)}` : '/me';
+    return request(endpoint, {
       method: 'GET'
     });
   }

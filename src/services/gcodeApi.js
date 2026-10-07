@@ -21,16 +21,10 @@ export const gcodeApi = {
     if (params.materialName) formData.append('materialName', params.materialName);
     if (params.ditherAlgorithm) formData.append('ditherAlgorithm', params.ditherAlgorithm);
 
-    const headers = {};
-    const token = localStorage.getItem('laser_auth_token');
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
     try {
       const res = await fetch(`${BASE_URL}/generate`, {
         method: 'POST',
-        headers,
+        credentials: 'include',
         body: formData
       });
       const data = await res.json();
