@@ -818,6 +818,7 @@ export default function ParameterPanel({
               type="button"
               className={`mode-tab-btn ${mode === 'raster' ? 'active' : ''}`}
               onClick={() => setMode('raster')}
+              title="Quét ngang từng dòng lấp đầy bề mặt chữ và chi tiết hình ảnh"
             >
               Đốt mảng (Raster)
             </button>
@@ -825,9 +826,15 @@ export default function ParameterPanel({
               type="button"
               className={`mode-tab-btn ${mode === 'vector' ? 'active' : ''}`}
               onClick={() => setMode('vector')}
+              title="Tia laser chạy liên tục men theo đường bao viền chu vi ngoài và các lỗ thủng bên trong (cắt đứt / viền nét)"
             >
               Cắt viền (Vector)
             </button>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--secondary)', marginTop: 4, fontStyle: 'italic' }}>
+            {mode === 'raster'
+              ? '⚡ Đốt mảng: Quét tia laser qua lại theo hàng ngang để phủ kín diện tích.'
+              : '✂️ Cắt viền: Laser chạy liên tục theo chu vi mép ngoài và lỗ rỗng của từng ký tự/hình.'}
           </div>
         </div>
       </div>

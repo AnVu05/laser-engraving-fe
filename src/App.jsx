@@ -11,7 +11,8 @@ import ProjectsModal from './components/ProjectsModal';
 import AuthModal from './components/AuthModal';
 import NewProjectModal from './components/NewProjectModal';
 import LaserParametersView from './components/LaserParametersView';
-import { processLaserImage, generateRasterGCodeFromMatrix, generateTextBinaryMatrix } from './utils/laserImageProcessor';
+import FocusCalibrationModal from './components/FocusCalibrationModal';
+import { processLaserImage, generateRasterGCodeFromMatrix, generateVectorContourGCode, generateTextBinaryMatrix } from './utils/laserImageProcessor';
 import { grblSerial } from './utils/grblSerialDriver';
 import { projectApi } from './services/projectApi';
 import { historyApi } from './services/historyApi';
@@ -56,8 +57,8 @@ export default function App() {
   const [mode, setMode] = useState('raster'); // 'raster' | 'vector'
 
   // Machine Telemetry & Laser Head (mm)
-  const [laserX, setLaserX] = useState(80.0);
-  const [laserY, setLaserY] = useState(70.8);
+  const [laserX, setLaserX] = useState(0.0);
+  const [laserY, setLaserY] = useState(0.0);
   const [stepSize, setStepSize] = useState(10);
 
   // Operation / Execution States
@@ -66,8 +67,8 @@ export default function App() {
   const [isPaused, setIsPaused] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentLine, setCurrentLine] = useState(0);
-  const [totalLines, setTotalLines] = useState(14828);
-  const [estimatedTime, setEstimatedTime] = useState('02:57');
+  const [totalLines, setTotalLines] = useState(0);
+  const [estimatedTime, setEstimatedTime] = useState('00:00');
   const [elapsedTime, setElapsedTime] = useState('00:00');
   const [statusText, setStatusText] = useState('Trạng thái: Sẵn sàng');
   const [statusType, setStatusType] = useState('ready'); // 'ready' | 'running' | 'paused' | 'stopped'
@@ -84,14 +85,20 @@ export default function App() {
   const [isProjectsOpen, setIsProjectsOpen] = useState(false);
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [historyList, setHistoryList] = useState([]);
 
   // Terminal Logs & Logger Callback (đặt lên đầu để các hàm bên dưới có thể dùng)
-  const [terminalLogs, setTerminalLogs] = useState([
-    { time: '11:59:12', type: 'sys', text: 'PhotonCraft GRBL Web Controller đã sẵn sàng.' },
-    { time: '11:59:13', type: 'sys', text: 'Khởi tạo Web Serial API & Laser Studio Design System.' }
-  ]);
+  const [terminalLogs, setTerminalLogs] = useState(() => {
+    const now = new Date();
+    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(
+      now.getMinutes()
+    ).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    return [
+      { time: timeStr, type: 'sys', text: 'PhotonCraft GRBL Web Controller đã sẵn sàng.' }
+    ];
+  });
 
   const addLog = useCallback((text, type = 'sys') => {
     const now = new Date();
@@ -819,6 +826,7 @@ export default function App() {
       isFramingRef.current = false;
       setIsFraming(false);
       addLog('Hoàn tất chạy khung bao trên máy thật.', 'sys');
+      setTimeout(() => setIsCalibrationOpen(true), 350);
     } else {
       // 2. KHI MÔ PHỎNG OFFLINE (Chưa cắm máy thật):
       // Quét mượt mà liên tục dọc theo 4 cạnh chu vi (33 FPS), không nhảy giật 4 góc
@@ -842,6 +850,7 @@ export default function App() {
           setLaserX(x0);
           setLaserY(y0);
           addLog('Hoàn tất chạy khung bao (mô phỏng).', 'sys');
+          setTimeout(() => setIsCalibrationOpen(true), 350);
           return;
         }
 
@@ -909,6 +918,18 @@ export default function App() {
             elem.name
           );
           body.push(rasterGCode);
+        } else if (mode === 'vector' && processedArtwork?.binaryMatrix) {
+          const vectorGCode = generateVectorContourGCode(
+            processedArtwork.binaryMatrix,
+            elem.x,
+            elem.y,
+            elem.width,
+            elem.height,
+            feedRate,
+            laserPower,
+            elem.name
+          );
+          body.push(vectorGCode);
         } else {
           body.push(`M5 ; Tắt laser di chuyển tới góc đối tượng`);
           body.push(`G0 X${elem.x.toFixed(2)} Y${elem.y.toFixed(2)} F${feedRate}`);
@@ -940,17 +961,31 @@ export default function App() {
       } else if (elem.type === 'text') {
         const textMatrix = generateTextBinaryMatrix(elem.text || 'PhotonCraft', elem.width, elem.height, elem.fontFamily, dpi);
         if (textMatrix && textMatrix.length > 0) {
-          const textRasterGCode = generateRasterGCodeFromMatrix(
-            textMatrix,
-            elem.x,
-            elem.y,
-            elem.width,
-            elem.height,
-            feedRate,
-            laserPower,
-            `Text: ${elem.text || 'text'}`
-          );
-          body.push(textRasterGCode);
+          if (mode === 'vector') {
+            const textVectorGCode = generateVectorContourGCode(
+              textMatrix,
+              elem.x,
+              elem.y,
+              elem.width,
+              elem.height,
+              feedRate,
+              laserPower,
+              `Text: ${elem.text || 'text'}`
+            );
+            body.push(textVectorGCode);
+          } else {
+            const textRasterGCode = generateRasterGCodeFromMatrix(
+              textMatrix,
+              elem.x,
+              elem.y,
+              elem.width,
+              elem.height,
+              feedRate,
+              laserPower,
+              `Text: ${elem.text || 'text'}`
+            );
+            body.push(textRasterGCode);
+          }
         } else {
           body.push(`M5 ; Di chuyển tới vị trí văn bản "${elem.text || 'Text'}"`);
           body.push(`G0 X${elem.x.toFixed(2)} Y${elem.y.toFixed(2)} F${feedRate}`);
@@ -1179,8 +1214,8 @@ export default function App() {
         engravingSpeed: feedRate,
         laserPower: Math.round((laserPower / 100) * 1000),
         dpi,
-        outputWidthMm: targetObj?.width || 80.0,
-        outputHeightMm: targetObj?.height || 70.8,
+        outputWidthMm: targetObj?.width || 0.0,
+        outputHeightMm: targetObj?.height || 0.0,
         originXMm: targetObj?.x || 0.0,
         originYMm: targetObj?.y || 0.0,
         mode,
@@ -1470,6 +1505,7 @@ export default function App() {
                     setStepSize={setStepSize}
                     onFramingCheck={handleFramingCheck}
                     isFraming={isFraming}
+                    onOpenCalibration={() => setIsCalibrationOpen(true)}
                     isRunning={isRunning}
                     isPaused={isPaused}
                     progress={progress}
@@ -1549,7 +1585,12 @@ export default function App() {
         onOpenAuth={() => setIsAuthOpen(true)}
         onDeleteItem={handleDeleteHistoryItem}
         onDownloadItem={(item) => {
-          const content = item.gcode || generateGCodeText();
+          if (!item.gcode) {
+            addLog(`Không tìm thấy nội dung mã G-code lưu trữ cho mục: ${item.name || 'G-code'}`, 'err');
+            alert('Không tìm thấy nội dung mã G-code lưu trữ cho mục lịch sử này.');
+            return;
+          }
+          const content = item.gcode;
           const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
           const url = URL.createObjectURL(blob);
           const link = document.createElement('a');
@@ -1590,6 +1631,18 @@ export default function App() {
           setCurrentUser(user);
           addLog(`Đăng nhập thành công với tài khoản: ${user.email} (${user.provider})`, 'sys');
         }}
+      />
+
+      {/* 4. SMART FOCUS & THERMAL CALIBRATION MODAL (LM-C40 5.5W - 40mm) */}
+      <FocusCalibrationModal
+        isOpen={isCalibrationOpen}
+        onClose={() => setIsCalibrationOpen(false)}
+        feedRate={feedRate}
+        setFeedRate={setFeedRate}
+        laserPower={laserPower}
+        setLaserPower={setLaserPower}
+        onStartJob={handleStartJob}
+        onNotify={addLog}
       />
     </div>
   );

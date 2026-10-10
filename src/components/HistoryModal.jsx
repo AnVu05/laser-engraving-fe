@@ -15,34 +15,10 @@ export default function HistoryModal({
       return;
     }
 
-    let content = item.gcode;
+    const content = item.gcode;
     if (!content) {
-      const speed = item.feedRate || 1500;
-      const pwr = item.power || 750;
-      content = [
-        '; ========================================================',
-        '; PhotonCraft GRBL Web Controller - Tệp G-code từ Lịch sử',
-        `; Đối tượng: ${item.name}`,
-        `; Thời gian lưu: ${item.date}`,
-        `; Tốc độ Feed rate: ${speed} mm/min`,
-        `; Công suất Laser PWM: S${pwr}`,
-        `; Tổng số dòng lệnh: ${item.lines || 'N/A'}`,
-        '; ========================================================',
-        '$32=1       ; Bật Laser Mode chuẩn GRBL',
-        'G21         ; Đơn vị tọa độ milimét',
-        'G90         ; Tọa độ tuyệt đối',
-        'M5          ; Đảm bảo tắt laser trước khi di chuyển nhanh',
-        `G0 X0 Y0 F${speed}`,
-        `M3 S${pwr}  ; Bật tia laser công suất S${pwr}`,
-        '; --- Hành trình gia công mẫu ---',
-        `G1 X60.00 Y0.00 F${speed}`,
-        `G1 X60.00 Y50.00`,
-        `G1 X0.00 Y50.00`,
-        `G1 X0.00 Y0.00`,
-        'M5          ; Tắt tia laser',
-        'G0 X0 Y0    ; Quay về gốc phôi',
-        'M2          ; Kết thúc chương trình gia công'
-      ].join('\n');
+      alert('Không tìm thấy nội dung mã G-code cho mục lịch sử này.');
+      return;
     }
 
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });

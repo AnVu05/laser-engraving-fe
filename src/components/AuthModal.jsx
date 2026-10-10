@@ -951,26 +951,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
           </div>
         )}
 
-        {/* Security Footer */}
-        <div 
-          style={{
-            marginTop: 18,
-            paddingTop: 12,
-            borderTop: '1px solid rgba(195, 198, 215, 0.3)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 6,
-            fontSize: 10,
-            fontFamily: 'var(--font-mono, monospace)',
-            color: '#737686'
-          }}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#2563eb' }}>
-            lock
-          </span>
-          <span>Bảo mật HttpOnly Cookie & Chuẩn xác thực RFC 7519 JWT</span>
-        </div>
       </div>
     </div>
   );

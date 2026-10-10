@@ -384,3 +384,224 @@ export function generateTextBinaryMatrix(text, widthMm, heightMm, fontFamily = '
   return binaryMatrix;
 }
 
+/**
+ * Tính khoảng cách vuông góc từ điểm p đến đoạn thẳng (p1, p2)
+ */
+function perpendicularDistance(p, p1, p2) {
+  const dx = p2[0] - p1[0];
+  const dy = p2[1] - p1[1];
+  const mag = Math.hypot(dx, dy);
+  if (mag === 0) return Math.hypot(p[0] - p1[0], p[1] - p1[1]);
+  return Math.abs(dy * p[0] - dx * p[1] + p2[0] * p1[1] - p2[1] * p1[0]) / mag;
+}
+
+/**
+ * Thuật toán Ramer-Douglas-Peucker làm mượt polyline
+ */
+function ramerDouglasPeucker(points, epsilon) {
+  if (points.length <= 2) return points;
+  let dmax = 0;
+  let index = 0;
+  for (let i = 1; i < points.length - 1; i++) {
+    const d = perpendicularDistance(points[i], points[0], points[points.length - 1]);
+    if (d > dmax) {
+      index = i;
+      dmax = d;
+    }
+  }
+  if (dmax > epsilon) {
+    const rec1 = ramerDouglasPeucker(points.slice(0, index + 1), epsilon);
+    const rec2 = ramerDouglasPeucker(points.slice(index), epsilon);
+    return rec1.slice(0, -1).concat(rec2);
+  } else {
+    return [points[0], points[points.length - 1]];
+  }
+}
+
+/**
+ * Rút gọn chu trình vector khép kín:
+ * 1. Khử các điểm collinear thẳng hàng
+ * 2. Làm mượt bậc thang pixel bằng Ramer-Douglas-Peucker (tách tại điểm xa nhất để bảo toàn vòng lặp)
+ */
+function simplifyClosedLoop(loop, epsilon = 0.65) {
+  if (loop.length <= 3) return loop;
+
+  // 1. Khử các điểm collinear thẳng hàng
+  const decollinear = [loop[0]];
+  for (let i = 1; i < loop.length - 1; i++) {
+    const prev = decollinear[decollinear.length - 1];
+    const curr = loop[i];
+    const next = loop[i + 1];
+    const dx1 = curr[0] - prev[0];
+    const dy1 = curr[1] - prev[1];
+    const dx2 = next[0] - curr[0];
+    const dy2 = next[1] - curr[1];
+    if (dx1 * dy2 !== dy1 * dx2) {
+      decollinear.push(curr);
+    }
+  }
+  decollinear.push(loop[loop.length - 1]);
+
+  if (decollinear.length <= 4) return decollinear;
+
+  // 2. Chạy RDP với vòng lặp khép kín
+  const isClosed = (decollinear[0][0] === decollinear[decollinear.length - 1][0] && 
+                    decollinear[0][1] === decollinear[decollinear.length - 1][1]);
+  if (isClosed) {
+    let maxDist = 0;
+    let splitIdx = Math.floor(decollinear.length / 2);
+    for (let i = 1; i < decollinear.length - 1; i++) {
+      const dist = Math.hypot(decollinear[i][0] - decollinear[0][0], decollinear[i][1] - decollinear[0][1]);
+      if (dist > maxDist) {
+        maxDist = dist;
+        splitIdx = i;
+      }
+    }
+    const part1 = ramerDouglasPeucker(decollinear.slice(0, splitIdx + 1), epsilon);
+    const part2 = ramerDouglasPeucker(decollinear.slice(splitIdx), epsilon);
+    return part1.slice(0, -1).concat(part2);
+  } else {
+    return ramerDouglasPeucker(decollinear, epsilon);
+  }
+}
+
+/**
+ * Sinh mã G-code Cắt viền Vector (Vector Contour Cut) chuẩn GRBL từ ma trận điểm ảnh nhị phân
+ * Thuật toán tách biên cạnh có hướng (Directed Boundary Edge Tracing) & Khép kín chu vi (Closed Loops)
+ * Hỗ trợ đồng thời cả đường viền ngoài (Outer Contours) và các lỗ rỗng bên trong (Inner Holes, ví dụ chữ O, A, B...)
+ */
+export function generateVectorContourGCode(
+  binaryMatrix,
+  startX,
+  startY,
+  widthMm,
+  heightMm,
+  feedRate = 1200,
+  laserPower = 80,
+  artworkName = 'vector_contour'
+) {
+  if (!binaryMatrix || binaryMatrix.length === 0 || !binaryMatrix[0] || binaryMatrix[0].length === 0) {
+    return '';
+  }
+
+  const rows = binaryMatrix.length;
+  const cols = binaryMatrix[0].length;
+  const S_val = Math.round((laserPower / 100) * 1000);
+
+  // 1. Thu thập tất cả các cạnh biên có hướng theo chiều kim đồng hồ quanh pixel 1
+  const adj = new Map();
+
+  function addEdge(x1, y1, x2, y2) {
+    const key = `${x1},${y1}`;
+    if (!adj.has(key)) adj.set(key, []);
+    adj.get(key).push([x2, y2]);
+  }
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (binaryMatrix[r][c] === 1) {
+        // Cạnh trên (hướng sang phải): nếu ô phía trên là 0 hoặc chạm biên trên
+        if (r === 0 || binaryMatrix[r - 1][c] === 0) {
+          addEdge(c, r, c + 1, r);
+        }
+        // Cạnh phải (hướng xuống dưới): nếu ô bên phải là 0 hoặc chạm biên phải
+        if (c === cols - 1 || binaryMatrix[r][c + 1] === 0) {
+          addEdge(c + 1, r, c + 1, r + 1);
+        }
+        // Cạnh dưới (hướng sang trái): nếu ô phía dưới là 0 hoặc chạm biên dưới
+        if (r === rows - 1 || binaryMatrix[r + 1][c] === 0) {
+          addEdge(c + 1, r + 1, c, r + 1);
+        }
+        // Cạnh trái (hướng lên trên): nếu ô bên trái là 0 hoặc chạm biên trái
+        if (c === 0 || binaryMatrix[r][c - 1] === 0) {
+          addEdge(c, r + 1, c, r);
+        }
+      }
+    }
+  }
+
+  // 2. Lần theo các cạnh định hướng để tạo thành các chu trình khép kín (Eulerian loops)
+  const rawLoops = [];
+
+  for (const [startKey, edges] of adj.entries()) {
+    while (edges.length > 0) {
+      const startCoord = startKey.split(',').map(Number);
+      const loop = [startCoord];
+      let cur = edges.pop();
+
+      let safety = 0;
+      const maxSteps = (rows + 1) * (cols + 1) * 4;
+
+      while (cur && safety++ < maxSteps) {
+        loop.push(cur);
+        if (cur[0] === startCoord[0] && cur[1] === startCoord[1]) {
+          break; // Khép kín vòng chu trình
+        }
+
+        const nextKey = `${cur[0]},${cur[1]}`;
+        const nextEdges = adj.get(nextKey);
+        if (nextEdges && nextEdges.length > 0) {
+          cur = nextEdges.pop();
+        } else {
+          break;
+        }
+      }
+
+      if (loop.length >= 4) {
+        rawLoops.push(loop);
+      }
+    }
+  }
+
+  if (rawLoops.length === 0) {
+    return `; --- Không tìm thấy đường bao viền nào cho: ${artworkName} ---`;
+  }
+
+  const gcodeLines = [
+    `; --- Bắt đầu Cắt viền Vector (Contour Cut): ${artworkName} ---`,
+    `; Kích thước: ${widthMm.toFixed(2)} x ${heightMm.toFixed(2)} mm (${rawLoops.length} đường bao vector)`,
+    `; Tốc độ cắt: F${feedRate} mm/min | Công suất: ${laserPower}% (S${S_val})`,
+    `M5 ; Tắt tia laser trước khi di chuyển tới đường viền đầu tiên`
+  ];
+
+  let loopCount = 0;
+
+  for (const rawLoop of rawLoops) {
+    const loop = simplifyClosedLoop(rawLoop, 0.65);
+    if (loop.length < 3) continue;
+
+    // Chuyển đổi tọa độ pixel ma trận sang mm chuẩn CNC (Y0 là đáy bàn cắt, Ymax là đỉnh)
+    const pts = loop.map(([c, r]) => ({
+      x: +(startX + (c / cols) * widthMm).toFixed(2),
+      y: +(startY + ((rows - r) / rows) * heightMm).toFixed(2)
+    }));
+
+    // Bỏ qua các đường thoái hóa thành điểm (chiều rộng và chiều cao bằng 0)
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const p of pts) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+    if (maxX === minX && maxY === minY) continue;
+
+    loopCount++;
+    gcodeLines.push(`\n; --- Đường viền vector #${loopCount} (${pts.length} điểm) ---`);
+    // 1. Chạy nhanh tới điểm bắt đầu đường viền (Laser tắt ở G0)
+    gcodeLines.push(`G0 X${pts[0].x.toFixed(2)} Y${pts[0].y.toFixed(2)} F3000`);
+    // 2. Bật laser công suất định mức để cắt (M3 S...)
+    gcodeLines.push(`M3 S${S_val}`);
+    // 3. Cắt theo viền đường dẫn G1
+    gcodeLines.push(`G1 X${pts[1].x.toFixed(2)} Y${pts[1].y.toFixed(2)} F${feedRate}`);
+    for (let i = 2; i < pts.length; i++) {
+      gcodeLines.push(`G1 X${pts[i].x.toFixed(2)} Y${pts[i].y.toFixed(2)}`);
+    }
+    // 4. Tắt laser sau khi cắt xong vòng khép kín
+    gcodeLines.push(`M5`);
+  }
+
+  gcodeLines.push(`; --- Hoàn tất ${loopCount} đường viền vector cho ${artworkName} ---`);
+  return gcodeLines.join('\n');
+}
+

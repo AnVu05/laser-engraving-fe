@@ -7,6 +7,7 @@ export default function BottomDock({
   setStepSize,
   onFramingCheck,
   isFraming,
+  onOpenCalibration,
   isRunning,
   isPaused,
   progress,
@@ -128,6 +129,39 @@ export default function BottomDock({
             crop_free
           </span>
           <span>{isFraming ? 'Đang chạy khung...' : 'Chạy khung thử (Frame)'}</span>
+        </button>
+
+        {/* Smart Focus Calibration Button (LM-C40 40mm) */}
+        <button
+          type="button"
+          className="btn-focus-calibrate"
+          onClick={onOpenCalibration}
+          title="Trợ lý Tiêu cự & Đề xuất công suất thông minh LM-C40 5.5W"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 5,
+            padding: '0 10px',
+            height: 32,
+            borderRadius: 6,
+            border: '1px solid rgba(37, 99, 235, 0.4)',
+            backgroundColor: '#eff4ff',
+            color: '#1d4ed8',
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: 'pointer',
+            transition: 'all 0.15s ease'
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#dbeafe'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#eff4ff'; }}
+        >
+          <span
+            className="material-symbols-outlined"
+            style={{ fontSize: 16, color: '#2563eb' }}
+          >
+            center_focus_strong
+          </span>
+          <span>Cân chỉnh tiêu cự</span>
         </button>
       </div>
 
