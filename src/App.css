@@ -2770,4 +2770,30 @@
   }
 }
 
+/* ==========================================================================
+   JOB PROGRESS MODAL – IoT Cloud Monitor
+   Sử dụng toàn bộ design tokens đã định nghĩa trong :root (index.css)
+   ========================================================================== */
+
+/* Stepper: dot blink cho trạng thái AWAITING_ONSITE_CONFIRMATION */
+@keyframes stepper-dot-pulse {
+  0%   { box-shadow: 0 0 0 2px var(--warning-bg); }
+  100% { box-shadow: 0 0 0 6px transparent; }
+}
+
+/* Pulsing glow trên progress bar khi đang in */
+@keyframes bar-glow {
+  0%   { box-shadow: 0 0 4px rgba(37, 99, 235, 0.35); }
+  100% { box-shadow: 0 0 10px rgba(37, 99, 235, 0.7); }
+}
+
+.job-progress-bar-active {
+  animation: bar-glow 1.1s ease-in-out infinite alternate;
+}
+
+/* Status-pulse-dot bổ sung cho trạng thái "awaiting" (warning màu) */
+.status-pulse-dot.awaiting {
+  background-color: var(--warning);
+  animation: pulse-ping 0.8s infinite alternate;
+}
 
