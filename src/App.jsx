@@ -12,12 +12,14 @@ import AuthModal from './components/AuthModal';
 import NewProjectModal from './components/NewProjectModal';
 import LaserParametersView from './components/LaserParametersView';
 import FocusCalibrationModal from './components/FocusCalibrationModal';
+import JobProgressModal from './components/JobProgressModal';
 import { processLaserImage, generateRasterGCodeFromMatrix, generateVectorContourGCode, generateTextBinaryMatrix } from './utils/laserImageProcessor';
 import { grblSerial } from './utils/grblSerialDriver';
 import { projectApi } from './services/projectApi';
 import { historyApi } from './services/historyApi';
 import { settingsApi } from './services/settingsApi';
 import { authApi } from './services/authApi';
+import { jobApi } from './services/jobApi';
 import './App.css';
 
 export default function App() {
@@ -86,6 +88,9 @@ export default function App() {
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
+  const [isJobProgressOpen, setIsJobProgressOpen] = useState(false);
+  const [activeJob, setActiveJob] = useState(null);
+  const [isDispatchingJob, setIsDispatchingJob] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [historyList, setHistoryList] = useState([]);
 
@@ -1298,6 +1303,89 @@ export default function App() {
     addLog(`Đã tải file .NC: ${link.download}`, 'sys');
   };
 
+  // Điều phối Job khắc laser tới máy IoT (MKS DLC32 V2.1) qua Cloud Backend
+  const handleDispatchIoTJob = async (targetDevice = 'LASER-HN-001') => {
+    if (isDispatchingJob) return;
+
+    const gcodeText = generateGCodeText();
+    if (!gcodeText || elements.length === 0) {
+      addLog('Bàn làm việc đang trống hoặc chưa tạo được mã G-code!', 'err');
+      alert('Không có mã G-code để gửi tới máy IoT.');
+      return;
+    }
+
+    const targetObj = selectedElem || elements[0];
+    const fileName = targetObj?.name
+      ? (targetObj.name.endsWith('.gcode') || targetObj.name.endsWith('.nc')
+          ? targetObj.name
+          : `${targetObj.name.replace(/\.[^/.]+$/, '')}.gcode`)
+      : 'logo.gcode';
+
+    const targetW = targetObj?.width ? Number(targetObj.width.toFixed(2)) : 100.0;
+    const targetH = targetObj?.height ? Number(targetObj.height.toFixed(2)) : 100.0;
+    const sPower = Math.round((laserPower / 100) * 1000);
+
+    setIsDispatchingJob(true);
+    addLog(`[IoT Cloud] Đang chuẩn bị điều phối Job tới thiết bị ${targetDevice}...`, 'sys');
+
+    try {
+      const payload = {
+        deviceCode: targetDevice,
+        originalFilename: fileName,
+        gcodeContent: gcodeText,
+        targetWidthMm: targetW,
+        targetHeightMm: targetH,
+        feedRate: feedRate || 1500,
+        laserPower: sPower,
+        materialType: targetObj?.type === 'image' ? 'Gỗ Plywood (Ảnh Dithering)' : 'Gỗ Plywood (Vector)',
+        userId: currentUser?.id || null
+      };
+
+      const response = await jobApi.dispatchJobJson(payload);
+      const jobData = response.data;
+
+      addLog(`✅ [IoT Cloud] Điều phối thành công Job ${jobData.jobCode} tới ${jobData.deviceCode} (SHA-256: ${jobData.sha256Checksum ? jobData.sha256Checksum.slice(0, 8) : '—'}...)`, 'sys');
+
+      setActiveJob({
+        jobId: jobData.jobId,
+        jobCode: jobData.jobCode,
+        deviceCode: jobData.deviceCode || targetDevice,
+        sha256Checksum: jobData.sha256Checksum || '',
+        originalFilename: jobData.originalFilename || fileName,
+        totalLines: jobData.totalLines || totalLines
+      });
+
+      setIsGCodeOpen(false);
+      setIsJobProgressOpen(true);
+    } catch (err) {
+      console.error('Lỗi khi điều phối Job IoT:', err);
+      addLog(`❌ [IoT Cloud Lỗi] ${err.message}`, 'err');
+      alert(`Không thể gửi Job tới máy ${targetDevice}:\n${err.message}`);
+    } finally {
+      setIsDispatchingJob(false);
+    }
+  };
+
+  // Dừng khẩn cấp / Hủy Job IoT
+  const handleAbortIoTJob = async (jobCode) => {
+    addLog(`⚠️ [IoT Cloud] Gửi lệnh dừng khẩn cấp Job ${jobCode}...`, 'err');
+    try {
+      await jobApi.cancelJob(jobCode);
+      addLog(`[IoT Cloud] Đã gửi lệnh hủy Job ${jobCode} lên máy chủ Cloud`, 'sys');
+    } catch (err) {
+      console.warn('Hủy Job trên backend không thành công:', err.message);
+    }
+
+    if (isConnected) {
+      try {
+        await grblSerial.emergencyStop();
+        addLog('Đã phát tín hiệu dừng E-Stop phần cứng cắt tia laser ngay lập tức.', 'err');
+      } catch (err) {
+        console.error('Lỗi E-Stop phần cứng:', err);
+      }
+    }
+  };
+
   // Save Project Handler (Cập nhật đè lên dự án cũ nếu đang mở, hoặc tạo mới nếu là bản vẽ mới)
   const handleSaveProject = (saveAsNew = false) => {
     if (!currentUser) {
@@ -1398,6 +1486,8 @@ export default function App() {
         currentUser={currentUser}
         onOpenAuth={() => setIsAuthOpen(true)}
         onLogout={handleLogout}
+        activeJob={activeJob}
+        onOpenJobProgress={() => setIsJobProgressOpen(true)}
       />
 
       {/* 2. MAIN WORKSPACE CONTAINER */}
@@ -1555,6 +1645,19 @@ export default function App() {
         gcode={generateGCodeText()}
         totalLines={totalLines}
         onDownloadNC={handleDownloadNC}
+        onDispatchIoT={handleDispatchIoTJob}
+        isDispatching={isDispatchingJob}
+        deviceCode="LASER-HN-001"
+      />
+
+      <JobProgressModal
+        isOpen={isJobProgressOpen}
+        onClose={() => setIsJobProgressOpen(false)}
+        jobCode={activeJob?.jobCode}
+        deviceCode={activeJob?.deviceCode || 'LASER-HN-001'}
+        sha256={activeJob?.sha256Checksum || ''}
+        fileName={activeJob?.originalFilename || ''}
+        onAbortJob={handleAbortIoTJob}
       />
 
       <ConsoleModal

@@ -139,7 +139,10 @@ export default function GCodeModal({
   onClose,
   gcode = '',
   totalLines = 0,
-  onDownloadNC
+  onDownloadNC,
+  onDispatchIoT,
+  isDispatching = false,
+  deviceCode = 'LASER-HN-001'
 }) {
   const [activeTab, setActiveTab] = useState('visualizer'); // 'visualizer' | 'code' | 'validator'
   const [copied, setCopied] = useState(false);
@@ -516,13 +519,45 @@ export default function GCodeModal({
 
           <button
             type="button"
-            className="btn-trigger-start"
+            className="btn-header-action"
             onClick={onDownloadNC}
           >
             <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
               file_download
             </span>
             <span>Tải file .NC về máy</span>
+          </button>
+
+          <button
+            type="button"
+            className="btn-trigger-start"
+            onClick={() => {
+              if (!analysis.isWithinBounds) {
+                const proceed = window.confirm(
+                  'Cảnh báo an toàn: Vùng khắc vượt quá khổ bàn máy (300 x 200 mm). Bạn có chắc chắn muốn gửi lệnh tới máy IoT không?'
+                );
+                if (!proceed) return;
+              }
+              onDispatchIoT?.(deviceCode);
+            }}
+            disabled={isDispatching || !gcode || totalLines === 0}
+            title={
+              totalLines === 0
+                ? 'Chưa có mã G-code để gửi'
+                : `Gửi trực tiếp chương trình gia công tới bo mạch ${deviceCode}`
+            }
+          >
+            <span
+              className={`material-symbols-outlined ${isDispatching ? 'spinning' : ''}`}
+              style={{ fontSize: 16 }}
+            >
+              {isDispatching ? 'sync' : 'precision_manufacturing'}
+            </span>
+            <span>
+              {isDispatching
+                ? 'Đang gửi tới máy...'
+                : `Gửi đến máy IoT (${deviceCode})`}
+            </span>
           </button>
         </div>
       </div>

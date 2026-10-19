@@ -14,7 +14,9 @@ export default function Header({
   onOpenConsole,
   currentUser,
   onOpenAuth,
-  onLogout
+  onLogout,
+  activeJob,
+  onOpenJobProgress
 }) {
   return (
     <header className="studio-header">
@@ -66,6 +68,24 @@ export default function Header({
           >
             Console GRBL
           </button>
+          {activeJob && (
+            <button
+              type="button"
+              className="nav-tab-btn"
+              onClick={onOpenJobProgress}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                color: 'var(--primary-container)',
+                fontWeight: 600
+              }}
+              title={`Theo dõi tiến độ Job IoT: ${activeJob.jobCode || ''}`}
+            >
+              <span className="status-pulse-dot running" style={{ width: 6, height: 6 }} />
+              <span>Tiến độ IoT</span>
+            </button>
+          )}
         </nav>
       </div>
 

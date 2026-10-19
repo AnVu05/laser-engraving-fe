@@ -105,6 +105,25 @@ export const jobApi = {
   },
 
   /**
+   * Hủy bỏ / Dừng khẩn cấp một Job gia công
+   */
+  async cancelJob(jobCode) {
+    try {
+      const res = await fetch(`${BASE_URL}/${encodeURIComponent(jobCode)}/cancel`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      const data = await res.json();
+      if (!res.ok || (data && data.success === false)) {
+        throw new Error((data && data.message) || `Lỗi HTTP ${res.status}`);
+      }
+      return data;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  /**
    * Lấy đường dẫn tải file bảo mật
    */
   getDownloadUrl(jobId) {
