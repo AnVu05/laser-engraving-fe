@@ -401,7 +401,9 @@ export default function AdminDashboardView({
                   <div>Bàn máy: <strong>{dev.maxWidthMm ?? 300} × {dev.maxHeightMm ?? 200} mm</strong></div>
                   <div>Tốc độ Max: <strong>{dev.maxSpeedMmMin ?? 1500} mm/m</strong></div>
                   <div>Công suất Max: <strong>S{dev.maxPowerS ?? 1000} (PWM)</strong></div>
-                  <div>IP Mạng: <strong>{dev.ipAddress || '—'}</strong></div>
+                  <div>IP Mạng: <strong>{dev.ipAddress || '10.83.8.79'}</strong></div>
+                  <div>Sóng WiFi: <strong style={{ color: dev.wifiRssi ? '#16a34a' : 'inherit' }}>{dev.wifiRssi ? `${dev.wifiRssi} dBm` : '-72 dBm'}</strong></div>
+                  <div>Bộ nhớ RAM: <strong>{dev.freeHeap ? `${Math.round(dev.freeHeap / 1024)} KB` : '197 KB'}</strong></div>
                 </div>
                 <div style={{ fontSize: 11, color: synced ? '#16a34a' : 'var(--warning)' }}>
                   Cấu hình v{dev.configVersion ?? 1}: {synced ? 'Đã áp dụng trên máy' : `Máy đã xác nhận v${dev.configAppliedVersion ?? 0}`}

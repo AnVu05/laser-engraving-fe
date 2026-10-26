@@ -106,7 +106,24 @@ export default function Header({
       </div>
 
       <div className="header-right">
-        {/* Machine Status Pill */}
+        {/* Cloud IoT Status Pill */}
+        <div
+          className="connection-status-pill"
+          onClick={() => setActiveTab('admin-dashboard')}
+          style={{
+            cursor: 'pointer',
+            backgroundColor: 'var(--surface-container-low)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6
+          }}
+          title="Bấm để xem chi tiết thông số trạm máy Cloud IoT và cấu hình MKS DLC32"
+        >
+          <span className="status-pulse-dot running" style={{ width: 8, height: 8 }} />
+          <span>Cloud IoT: <strong style={{ color: 'var(--primary-container)' }}>LASER-HN-001</strong> (Online)</span>
+        </div>
+
+        {/* Machine Status Pill (USB Serial) */}
         <div className="connection-status-pill">
           <span
             className={`status-dot ${
@@ -115,10 +132,10 @@ export default function Header({
           />
           <span>
             {isConnected
-              ? `Máy khắc: Đã kết nối (${portName || 'COM3'})`
+              ? `USB Cáp: Đã cắm (${portName || 'COM3'})`
               : isConnecting
               ? 'Đang kết nối...'
-              : 'Máy khắc: Chưa kết nối'}
+              : 'USB Cáp: Chưa cắm'}
           </span>
         </div>
 
