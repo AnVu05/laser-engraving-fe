@@ -1,7 +1,9 @@
 /**
  * Client API kết nối với Spring Boot Backend cho History Management (http://localhost:8080/api/v1/history)
  */
-const BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1').replace(/\/auth$/, '') + '/history';
+import { API_BASE_URL } from './apiConfig';
+
+const BASE_URL = `${API_BASE_URL}/history`;
 
 async function request(endpoint, options = {}) {
   const url = `${BASE_URL}${endpoint}`;

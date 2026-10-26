@@ -13,6 +13,7 @@ import NewProjectModal from './components/NewProjectModal';
 import LaserParametersView from './components/LaserParametersView';
 import FocusCalibrationModal from './components/FocusCalibrationModal';
 import JobProgressModal from './components/JobProgressModal';
+import AdminDashboardView from './components/AdminDashboardView';
 import { processLaserImage, generateRasterGCodeFromMatrix, generateVectorContourGCode, generateTextBinaryMatrix } from './utils/laserImageProcessor';
 import { grblSerial } from './utils/grblSerialDriver';
 import { projectApi } from './services/projectApi';
@@ -1634,6 +1635,25 @@ export default function App() {
             onNotify={addLog}
             isConnected={isConnected}
             onFlashParameters={handleFlashParameters}
+          />
+        )}
+
+        {/* Dedicated Admin & Machine Operator Dashboard */}
+        {activeTab === 'admin-dashboard' && (
+          <AdminDashboardView
+            onBackToStudio={() => setActiveTab('canvas-studio')}
+            onNotify={addLog}
+            onOpenJobProgress={(job) => {
+              setActiveJob({
+                jobId: job.jobId,
+                jobCode: job.jobCode,
+                deviceCode: job.deviceCode || 'LASER-HN-001',
+                sha256Checksum: job.sha256Checksum || '',
+                originalFilename: job.originalFilename || 'logo.gcode',
+                totalLines: job.totalLines || 0
+              });
+              setIsJobProgressOpen(true);
+            }}
           />
         )}
       </div>

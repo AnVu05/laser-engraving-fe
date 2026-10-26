@@ -68,6 +68,22 @@ export default function Header({
           >
             Console GRBL
           </button>
+          <button
+            type="button"
+            className={`nav-tab-btn ${activeTab === 'admin-dashboard' ? 'active' : ''}`}
+            onClick={() => setActiveTab('admin-dashboard')}
+            title="Bảng điều khiển vai trò Quản lý / Admin phê duyệt an toàn và giám sát trạm máy"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+              admin_panel_settings
+            </span>
+            <span>Quản lý máy</span>
+          </button>
           {activeJob && (
             <button
               type="button"

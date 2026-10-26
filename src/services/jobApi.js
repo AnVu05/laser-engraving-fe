@@ -2,7 +2,9 @@
  * Client API kết nối với Spring Boot Backend cho IoT Job Dispatching & Kiểm tra SHA-256
  * Endpoint: http://localhost:8080/api/v1/jobs
  */
-const BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1').replace(/\/auth$/, '') + '/jobs';
+import { API_BASE_URL } from './apiConfig';
+
+const BASE_URL = `${API_BASE_URL}/jobs`;
 
 export const jobApi = {
   /**
@@ -26,7 +28,7 @@ export const jobApi = {
       return data;
     } catch (err) {
       if (err.message && err.message.includes('Failed to fetch')) {
-        throw new Error('Không thể kết nối đến Cloud Backend (http://localhost:8080).');
+        throw new Error('Không thể kết nối tới API máy chủ. Kiểm tra URL dịch vụ và trạng thái Cloudflare Tunnel.');
       }
       throw err;
     }
@@ -62,7 +64,7 @@ export const jobApi = {
       return data;
     } catch (err) {
       if (err.message && err.message.includes('Failed to fetch')) {
-        throw new Error('Không thể kết nối đến Cloud Backend (http://localhost:8080).');
+        throw new Error('Không thể kết nối tới API máy chủ. Kiểm tra URL dịch vụ và trạng thái Cloudflare Tunnel.');
       }
       throw err;
     }
@@ -121,6 +123,127 @@ export const jobApi = {
     } catch (err) {
       throw err;
     }
+  },
+
+  /**
+   * Lấy Telemetry thời gian thực từ Cloud Gateway (toạ độ X/Y, tiến độ %, cảm biến)
+   * GET /api/v1/jobs/{jobCode}/telemetry
+   */
+  async getJobTelemetry(jobCode) {
+    try {
+      const res = await fetch(`${BASE_URL}/${encodeURIComponent(jobCode)}/telemetry`, {
+        credentials: 'include'
+      });
+      const data = await res.json();
+      if (!res.ok || (data && data.success === false)) {
+        throw new Error((data && data.message) || `Lỗi HTTP ${res.status}`);
+      }
+      return data;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  /**
+   * Gửi lệnh điều khiển máy tức thời qua Cloud (PAUSE, RESUME, CANCEL, HOME)
+   * POST /api/v1/jobs/{jobCode}/command
+   */
+  async sendJobCommand(jobCode, action, reason = '') {
+    try {
+      const res = await fetch(`${BASE_URL}/${encodeURIComponent(jobCode)}/command`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ action, reason })
+      });
+      const data = await res.json();
+      if (!res.ok || (data && data.success === false)) {
+        throw new Error((data && data.message) || `Lỗi HTTP ${res.status}`);
+      }
+      return data;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  /**
+   * Xác nhận an toàn vật liệu tại chỗ bởi Quản máy / Admin
+   */
+  async confirmJob(jobCode) {
+    try {
+      const res = await fetch(`${BASE_URL}/${encodeURIComponent(jobCode)}/confirm`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      const data = await res.json();
+      if (!res.ok || (data && data.success === false)) {
+        throw new Error((data && data.message) || `Lỗi HTTP ${res.status}`);
+      }
+      return data;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  /**
+   * Lấy danh sách toàn bộ các Jobs trong hệ thống
+   */
+  async getAllJobs() {
+    try {
+      const res = await fetch(`${BASE_URL}`, {
+        credentials: 'include'
+      });
+      const data = await res.json();
+      if (!res.ok || (data && data.success === false)) {
+        throw new Error((data && data.message) || `Lỗi HTTP ${res.status}`);
+      }
+      return data;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  /**
+   * Lấy danh sách toàn bộ các máy khắc Laser IoT
+   */
+  async getDevices() {
+    const devicesUrl = BASE_URL.replace(/\/jobs$/, '/devices');
+    try {
+      const res = await fetch(devicesUrl, {
+        credentials: 'include'
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(`Lỗi HTTP ${res.status}`);
+      }
+      return data;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  async updateDeviceConfig(deviceCode, config) {
+    const res = await fetch(`${BASE_URL.replace(/\/jobs$/, `/devices/${encodeURIComponent(deviceCode)}/config`)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(config)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.message || `Lỗi HTTP ${res.status}`);
+    return data;
+  },
+
+  async rotateDeviceToken(deviceCode) {
+    const res = await fetch(`${BASE_URL.replace(/\/jobs$/, `/devices/${encodeURIComponent(deviceCode)}/token`)}`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.message || `Lỗi HTTP ${res.status}`);
+    return data;
   },
 
   /**

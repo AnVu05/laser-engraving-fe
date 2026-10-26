@@ -1,7 +1,9 @@
 /**
  * Client API kết nối với Spring Boot Backend cho Laser Machine Settings (http://localhost:8080/api/v1/settings)
  */
-const BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1').replace(/\/auth$/, '') + '/settings';
+import { API_BASE_URL } from './apiConfig';
+
+const BASE_URL = `${API_BASE_URL}/settings`;
 
 async function request(endpoint = '', options = {}) {
   const url = `${BASE_URL}${endpoint}`;
@@ -24,7 +26,7 @@ async function request(endpoint = '', options = {}) {
     return data;
   } catch (err) {
     if (err.message && err.message.includes('Failed to fetch')) {
-      throw new Error('Không thể kết nối đến máy chủ backend (http://localhost:8080).');
+      throw new Error('Không thể kết nối tới API máy chủ. Kiểm tra URL dịch vụ và trạng thái Cloudflare Tunnel.');
     }
     throw err;
   }

@@ -1,7 +1,9 @@
 /**
  * Client API kết nối với Spring Boot Backend cho Material Presets (http://localhost:8080/api/v1/materials)
  */
-const BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1').replace(/\/auth$/, '') + '/materials';
+import { API_BASE_URL } from './apiConfig';
+
+const BASE_URL = `${API_BASE_URL}/materials`;
 
 async function request(endpoint, options = {}) {
   const url = `${BASE_URL}${endpoint}`;

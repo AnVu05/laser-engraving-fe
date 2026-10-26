@@ -1,4 +1,5 @@
 import { Client } from '@stomp/stompjs';
+import { getWebSocketUrl } from './apiConfig';
 
 /**
  * Service quản lý kết nối STOMP WebSocket tới Cloud Broker (Spring Boot)
@@ -7,13 +8,7 @@ import { Client } from '@stomp/stompjs';
 
 // Xác định WS URL dựa trên biến môi trường hoặc host hiện tại
 const getDefaultBrokerUrl = () => {
-  if (import.meta.env.VITE_WS_URL) {
-    return import.meta.env.VITE_WS_URL;
-  }
-  const isHttps = window.location.protocol === 'https:';
-  const host = window.location.hostname || 'localhost';
-  const port = '8080'; // Cổng Spring Boot Backend mặc định
-  return `${isHttps ? 'wss' : 'ws'}://${host}:${port}/ws/client`;
+  return getWebSocketUrl();
 };
 
 class StompWebSocketService {

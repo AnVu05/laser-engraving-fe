@@ -1,7 +1,9 @@
 /**
  * Client API kết nối với Spring Boot Backend (http://localhost:8080/api/v1/auth)
  */
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1/auth';
+import { API_BASE_URL } from './apiConfig';
+
+const BASE_URL = `${API_BASE_URL}/auth`;
 
 async function request(endpoint, options = {}) {
   const url = `${BASE_URL}${endpoint}`;
