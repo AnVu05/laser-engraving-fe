@@ -42,24 +42,26 @@ function parseGCode(gcodeText) {
     const raw = lines[i].trim();
     if (!raw) continue;
 
-    // Phân tích chú thích & Header
-    if (raw.includes('$32=1')) hasLaserMode = true;
-    if (raw.includes('G90')) hasAbsoluteCoords = true;
-    if (raw.includes('M5')) isLaserOn = false;
-    if (raw.includes('M3') || raw.includes('M4')) isLaserOn = true;
+    const upper = raw.toUpperCase();
 
-    if (raw.startsWith(';')) continue;
+    // Phân tích chú thích & Header
+    if (upper.includes('$32=1')) hasLaserMode = true;
+    if (upper.includes('G90')) hasAbsoluteCoords = true;
+    if (upper.includes('M5')) isLaserOn = false;
+    if (upper.includes('M3') || upper.includes('M4')) isLaserOn = true;
+
+    if (raw.startsWith(';') || raw.startsWith('(')) continue;
 
     // Đọc feed rate F
-    const fMatch = raw.match(/F([0-9.]+)/i);
+    const fMatch = upper.match(/F([0-9.]+)/i);
     if (fMatch) feedRate = parseFloat(fMatch[1]) || 1500;
 
-    const isG0 = raw.startsWith('G0');
-    const isG1 = raw.startsWith('G1') || raw.startsWith('G2') || raw.startsWith('G3');
+    const isG0 = upper.startsWith('G0') || upper.startsWith('G00');
+    const isG1 = upper.startsWith('G1') || upper.startsWith('G01') || upper.startsWith('G2') || upper.startsWith('G3');
 
     if (isG0 || isG1) {
-      const xMatch = raw.match(/X([0-9.-]+)/i);
-      const yMatch = raw.match(/Y([0-9.-]+)/i);
+      const xMatch = upper.match(/X([0-9.-]+)/i);
+      const yMatch = upper.match(/Y([0-9.-]+)/i);
 
       let nextX = curX;
       let nextY = curY;
@@ -68,7 +70,7 @@ function parseGCode(gcodeText) {
       if (yMatch) nextY = parseFloat(yMatch[1]);
 
       const dist = Math.hypot(nextX - curX, nextY - curY);
-      const activeLaser = isG1 && (isLaserOn || raw.includes('S'));
+      const activeLaser = isG1 && (isLaserOn || upper.includes('S'));
 
       if (dist > 0.001) {
         segments.push({
@@ -142,7 +144,8 @@ export default function GCodeModal({
   onDownloadNC,
   onDispatchIoT,
   isDispatching = false,
-  deviceCode = 'LASER-HN-001'
+  deviceCode = 'LASER-HN-001',
+  deviceStatus = 'OFFLINE'
 }) {
   const [activeTab, setActiveTab] = useState('visualizer'); // 'visualizer' | 'code' | 'validator'
   const [copied, setCopied] = useState(false);
@@ -150,6 +153,11 @@ export default function GCodeModal({
 
   // Phân tích mã G-code để lấy thông số và đường vẽ
   const analysis = useMemo(() => parseGCode(gcode), [gcode]);
+
+  const effectiveTotalLines = useMemo(() => {
+    if (!gcode) return 0;
+    return gcode.split('\n').filter((l) => l.split(';')[0].trim()).length;
+  }, [gcode]);
 
   // Vẽ mô phỏng Toolpath lên Canvas khi mở tab Visualizer
   useEffect(() => {
@@ -324,7 +332,7 @@ export default function GCodeModal({
             <div>
               <span className="modal-title">Kiểm thử & Thẩm định Mã G-Code (GRBL Laser)</span>
               <div style={{ fontSize: 11, color: 'var(--secondary)', marginTop: 2 }}>
-                Mô phỏng đường chạy dao thực tế và kiểm tra độ an toàn trước khi khắc
+                Mô phỏng đường chạy dao thực tế và kiểm tra độ an toàn trước khi gửi đến máy IoT
               </div>
             </div>
           </div>
@@ -392,7 +400,7 @@ export default function GCodeModal({
             <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
               data_object
             </span>
-            <span>Mã G-Code chi tiết ({totalLines.toLocaleString()} dòng)</span>
+            <span>Mã G-Code chi tiết ({effectiveTotalLines.toLocaleString()} dòng)</span>
           </button>
         </div>
 
@@ -495,7 +503,7 @@ export default function GCodeModal({
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--secondary)', marginBottom: 8 }}>
                 <span>Định dạng: <strong>Mã lệnh NC chuẩn ISO 6983 / GRBL v1.1</strong></span>
-                <span>Tổng số dòng: <strong style={{ color: 'var(--on-surface)' }}>{totalLines.toLocaleString()}</strong></span>
+                <span>Tổng số dòng lệnh: <strong style={{ color: 'var(--on-surface)' }}>{effectiveTotalLines.toLocaleString()}</strong></span>
               </div>
               <pre className="gcode-code-box" style={{ maxHeight: 380, overflowY: 'auto' }}>
                 {gcode}
@@ -520,7 +528,7 @@ export default function GCodeModal({
           <button
             type="button"
             className="btn-header-action"
-            onClick={onDownloadNC}
+            onClick={() => onDownloadNC?.()}
           >
             <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
               file_download
@@ -528,37 +536,59 @@ export default function GCodeModal({
             <span>Tải file .NC về máy</span>
           </button>
 
-          <button
-            type="button"
-            className="btn-trigger-start"
-            onClick={() => {
-              if (!analysis.isWithinBounds) {
-                const proceed = window.confirm(
-                  'Cảnh báo an toàn: Vùng khắc vượt quá khổ bàn máy (300 x 200 mm). Bạn có chắc chắn muốn gửi lệnh tới máy IoT không?'
-                );
-                if (!proceed) return;
-              }
-              onDispatchIoT?.(deviceCode);
-            }}
-            disabled={isDispatching || !gcode || totalLines === 0}
-            title={
-              totalLines === 0
-                ? 'Chưa có mã G-code để gửi'
-                : `Gửi trực tiếp chương trình gia công tới bo mạch ${deviceCode}`
-            }
-          >
-            <span
-              className={`material-symbols-outlined ${isDispatching ? 'spinning' : ''}`}
-              style={{ fontSize: 16 }}
+          {/* GỬI ĐẾN MÁY IOT CLOUD (Bảo lưu cơ chế an toàn ngoại tuyến) */}
+          {deviceStatus === 'OFFLINE' ? (
+            <button
+              type="button"
+              className="btn-trigger-start"
+              disabled={true}
+              style={{
+                opacity: 0.65,
+                cursor: 'not-allowed',
+                backgroundColor: 'var(--surface-container-high)',
+                color: 'var(--on-surface-variant)',
+                boxShadow: 'none'
+              }}
+              title={`Máy khắc ${deviceCode} đang Ngoại tuyến (OFFLINE). Vui lòng cắm nguồn máy và đợi kết nối Wi-Fi.`}
             >
-              {isDispatching ? 'sync' : 'precision_manufacturing'}
-            </span>
-            <span>
-              {isDispatching
-                ? 'Đang gửi tới máy...'
-                : `Gửi đến máy IoT (${deviceCode})`}
-            </span>
-          </button>
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                cloud_off
+              </span>
+              <span>Máy IoT Ngoại tuyến ({deviceCode})</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn-trigger-start"
+              onClick={() => {
+                if (!analysis.isWithinBounds) {
+                  const proceed = window.confirm(
+                    'Cảnh báo an toàn: Vùng khắc vượt quá khổ bàn máy (300 x 200 mm). Bạn có chắc chắn muốn gửi lệnh tới máy IoT không?'
+                  );
+                  if (!proceed) return;
+                }
+                onDispatchIoT?.(deviceCode);
+              }}
+              disabled={isDispatching || !gcode || effectiveTotalLines === 0}
+              title={
+                effectiveTotalLines === 0
+                  ? 'Chưa có mã G-code để gửi'
+                  : `Gửi trực tiếp chương trình gia công tới bo mạch ${deviceCode}`
+              }
+            >
+              <span
+                className={`material-symbols-outlined ${isDispatching ? 'spinning' : ''}`}
+                style={{ fontSize: 16 }}
+              >
+                {isDispatching ? 'sync' : 'precision_manufacturing'}
+              </span>
+              <span>
+                {isDispatching
+                  ? 'Đang gửi tới máy...'
+                  : `Gửi đến máy IoT (${deviceCode})`}
+              </span>
+            </button>
+          )}
         </div>
       </div>
     </div>

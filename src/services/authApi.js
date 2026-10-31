@@ -94,11 +94,10 @@ export const authApi = {
   },
 
   /**
-   * Lấy thông tin tài khoản hiện tại từ HttpOnly cookie hoặc email
+   * Lấy thông tin tài khoản hiện tại từ HttpOnly cookie an toàn (chống XSS)
    */
-  async getMe(email) {
-    const endpoint = email ? `/me?email=${encodeURIComponent(email)}` : '/me';
-    return request(endpoint, {
+  async getMe() {
+    return request('/me', {
       method: 'GET'
     });
   }

@@ -224,6 +224,25 @@ export const jobApi = {
     }
   },
 
+  /**
+   * Tra cứu thông số và trạng thái kết nối thời gian thực của máy khắc cụ thể (VD: LASER-HN-001)
+   */
+  async getDeviceByCode(deviceCode) {
+    const deviceUrl = `${BASE_URL.replace(/\/jobs$/, '/devices')}/${encodeURIComponent(deviceCode)}`;
+    try {
+      const res = await fetch(deviceUrl, {
+        credentials: 'include'
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(`Lỗi HTTP ${res.status}`);
+      }
+      return data;
+    } catch (err) {
+      throw err;
+    }
+  },
+
   async updateDeviceConfig(deviceCode, config) {
     const res = await fetch(`${BASE_URL.replace(/\/jobs$/, `/devices/${encodeURIComponent(deviceCode)}/config`)}`, {
       method: 'PUT',
@@ -240,6 +259,22 @@ export const jobApi = {
     const res = await fetch(`${BASE_URL.replace(/\/jobs$/, `/devices/${encodeURIComponent(deviceCode)}/token`)}`, {
       method: 'POST',
       credentials: 'include'
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.message || `Lỗi HTTP ${res.status}`);
+    return data;
+  },
+
+  /**
+   * Gửi lệnh trực tiếp xuống thiết bị (FRAME, HOME, PAUSE, RESUME, CANCEL)
+   */
+  async sendDeviceCommand(deviceCode, payload) {
+    const url = `${BASE_URL.replace(/\/jobs$/, `/devices/${encodeURIComponent(deviceCode)}/commands`)}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload)
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data?.message || `Lỗi HTTP ${res.status}`);

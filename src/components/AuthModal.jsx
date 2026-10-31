@@ -103,11 +103,18 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
       });
       setTimeout(() => {
         if (onAuthSuccess) {
-          onAuthSuccess({
-            email: res.data?.user?.email || email,
-            name: res.data?.user?.username || email.split('@')[0],
+          const userObj = res.data?.user ? {
+            ...res.data.user,
+            role: res.data.user.role || 'USER',
+            name: res.data.user.fullName || res.data.user.username || email.split('@')[0],
             provider: 'gmail'
-          });
+          } : {
+            email,
+            name: email.split('@')[0],
+            role: 'USER',
+            provider: 'gmail'
+          };
+          onAuthSuccess(userObj);
         }
         onClose();
       }, 1000);
@@ -246,11 +253,18 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
       });
       setTimeout(() => {
         if (onAuthSuccess) {
-          onAuthSuccess({
-            email: res.data?.user?.email || otpTargetEmail,
-            name: res.data?.user?.username || otpTargetEmail.split('@')[0],
+          const userObj = res.data?.user ? {
+            ...res.data.user,
+            role: res.data.user.role || 'USER',
+            name: res.data.user.fullName || res.data.user.username || otpTargetEmail.split('@')[0],
             provider: 'gmail_otp'
-          });
+          } : {
+            email: otpTargetEmail,
+            name: otpTargetEmail.split('@')[0],
+            role: 'USER',
+            provider: 'gmail_otp'
+          };
+          onAuthSuccess(userObj);
         }
         onClose();
       }, 1000);

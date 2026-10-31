@@ -21,6 +21,7 @@ import { historyApi } from './services/historyApi';
 import { settingsApi } from './services/settingsApi';
 import { authApi } from './services/authApi';
 import { jobApi } from './services/jobApi';
+import { websocketService } from './services/websocketService';
 import './App.css';
 
 export default function App() {
@@ -94,6 +95,7 @@ export default function App() {
   const [isDispatchingJob, setIsDispatchingJob] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [historyList, setHistoryList] = useState([]);
+  const [cloudDevice, setCloudDevice] = useState(null);
 
   // Terminal Logs & Logger Callback (đặt lên đầu để các hàm bên dưới có thể dùng)
   const [terminalLogs, setTerminalLogs] = useState(() => {
@@ -297,12 +299,11 @@ export default function App() {
 
   // Tự động kiểm tra phiên đăng nhập bằng HttpOnly Cookie khi khởi chạy ứng dụng
   useEffect(() => {
-    const savedEmail = localStorage.getItem('laser_user_email');
-    authApi.getMe(savedEmail && savedEmail !== 'undefined' ? savedEmail : undefined)
+    authApi.getMe()
       .then((res) => {
         if (res?.data) {
           setCurrentUser(res.data);
-          addLog(`Chào mừng trở lại! Đã đăng nhập: ${res.data.email}`, 'sys');
+          addLog(`Chào mừng trở lại! Đã đăng nhập: ${res.data.email} (${res.data.role || 'USER'})`, 'sys');
         }
       })
       .catch(() => {
@@ -313,6 +314,48 @@ export default function App() {
         setCurrentUser(null);
       });
   }, [addLog]);
+
+  const isAdmin = Boolean(currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'OPERATOR'));
+
+  // Bảo vệ trang Quản lý máy: Khách vãng lai hoặc User thường cố tình truy cập sẽ ném lỗi 401 và bị đẩy về Bàn cắt
+  useEffect(() => {
+    if (activeTab === 'admin-dashboard' && !isAdmin) {
+      addLog('[Lỗi 401 Unauthorized] Bạn không có quyền truy cập trang Quản lý máy! Đã tự động chuyển về Bàn cắt.', 'err');
+      setActiveTab('canvas-studio');
+    }
+  }, [activeTab, isAdmin, addLog]);
+
+  // Đồng bộ trạng thái trạm máy Cloud IoT thời gian thực (LASER-HN-001)
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchDeviceStatus = async () => {
+      try {
+        const dev = await jobApi.getDeviceByCode('LASER-HN-001');
+        const devData = dev?.data || dev;
+        if (isMounted && devData) {
+          setCloudDevice(devData);
+        }
+      } catch (err) {
+        console.debug('Chưa thể lấy trạng thái Cloud IoT:', err.message);
+      }
+    };
+
+    fetchDeviceStatus();
+    const interval = setInterval(fetchDeviceStatus, 4000);
+
+    const unsubWs = websocketService.subscribe('/topic/devices/status', (data) => {
+      if (isMounted && data && (data.deviceCode === 'LASER-HN-001' || !data.deviceCode)) {
+        setCloudDevice((prev) => ({ ...prev, ...data }));
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      if (typeof unsubWs === 'function') unsubWs();
+    };
+  }, []);
 
   // Xử lý đăng xuất tài khoản an toàn: Gọi API xóa HttpOnly Cookie trên server
   const handleLogout = useCallback(async () => {
@@ -453,6 +496,7 @@ export default function App() {
     [handleAddRectangle, handleAddCircle, handleAddText]
   );
 
+  // File Upload Handler (Image / Vector / Raw G-Code)
   // File Upload Handler (Image / Vector)
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
@@ -834,8 +878,38 @@ export default function App() {
       addLog('Hoàn tất chạy khung bao trên máy thật.', 'sys');
       setTimeout(() => setIsCalibrationOpen(true), 350);
     } else {
-      // 2. KHI MÔ PHỎNG OFFLINE (Chưa cắm máy thật):
-      // Quét mượt mà liên tục dọc theo 4 cạnh chu vi (33 FPS), không nhảy giật 4 góc
+      // 2. KHI CHẠY QUA CLOUD IOT (Hoặc chế độ mô phỏng):
+      // Phát lệnh FRAME xuống bo mạch MKS DLC32 qua Cloud WebSocket & REST API
+      const framePayload = {
+        action: 'FRAME',
+        minX: x0,
+        minY: y0,
+        maxX: x1,
+        maxY: y1,
+        feedRate: frameFeed
+      };
+
+      const devCode = 'LASER-HN-001';
+      addLog(`[IoT Cloud] Đang phát lệnh chạy thử khung bao tới bo mạch ${devCode}: (${x0}, ${y0}) -> (${x1}, ${y1}) mm...`, 'sys');
+
+      // Gửi qua WebSocket STOMP
+      try {
+        if (websocketService.client && websocketService.client.active) {
+          websocketService.client.publish({
+            destination: `/topic/device/${devCode}/commands`,
+            body: JSON.stringify(framePayload)
+          });
+        }
+      } catch (_) {}
+
+      // Đồng thời gọi REST API chuyển tiếp xuống thiết bị
+      jobApi.sendDeviceCommand(devCode, framePayload)
+        .then(() => {
+          addLog(`✅ [IoT Cloud] Bo mạch ${devCode} đã nhận lệnh quét khung thật!`, 'sys');
+        })
+        .catch(() => {});
+
+      // Quét mượt mà liên tục dọc theo 4 cạnh chu vi (33 FPS) trên Web Canvas để người dùng quan sát
       const W = target.width;
       const H = target.height;
       const totalPerimeter = 2 * (W + H);
@@ -1070,187 +1144,21 @@ export default function App() {
     } catch (_) {}
   }, [elements, generateGCodeText, isRunning, feedRate]);
 
-  // Start Job / Streaming thật xuống máy qua Web Serial Call-and-Response
-  const handleStartJob = async () => {
-    if (isRunning && !isPaused) return;
-
-    if (!isConnected) {
-      addLog('⚠️ Máy khắc Laser chưa được kết nối qua cổng COM! Vui lòng cắm cáp USB và nhấn nút "Kết nối máy" trước khi bắt đầu gia công thật.', 'err');
-      addLog('💡 Mẹo: Nếu bạn chỉ muốn lấy file mã G-Code để nạp vào thẻ nhớ hoặc máy khác, hãy nhấn nút "Tạo mã G-Code" hoặc "Tải file .NC".', 'sys');
-      return;
-    }
+  // Bắt đầu khắc: Toàn bộ quy trình gia công được điều phối an toàn qua IoT Cloud
+  // (Tính năng truyền G-code qua cổng COM trực tiếp đã được ẩn hoàn toàn theo kiến trúc Makerbase MKS DLC32)
+  const handleStartJob = () => {
+    isStreamingRef.current = false;
+    isCancelledRef.current = true;
+    setIsRunning(false);
+    setIsPaused(false);
 
     if (elements.length === 0) {
       addLog('⚠️ Bàn cắt chưa có đối tượng nào để gia công. Vui lòng thêm chữ hoặc hình vẽ trước khi bắt đầu!', 'warn');
       return;
     }
 
-    const target = selectedElem || elements[0];
-    if (isPaused) {
-      isPausedRef.current = false;
-      setIsPaused(false);
-      setStatusText('Đang gia công...');
-      setStatusType('running');
-      addLog('~ (Resume / Tiếp tục khắc)', 'cmd');
-      try { await grblSerial.sendRaw('~'); } catch (_) {}
-      return;
-    }
-
-    const gcodeText = generateGCodeText();
-    const allLines = gcodeText.split(/\r?\n/);
-    const commands = [];
-    for (const raw of allLines) {
-      const clean = raw.split(';')[0].trim();
-      if (clean) {
-        commands.push(clean);
-      }
-    }
-
-    if (commands.length === 0) {
-      addLog('Không có lệnh G-code nào để thực thi.', 'err');
-      return;
-    }
-
-    setTotalLines(commands.length);
-    setCurrentLine(0);
-    setProgress(0);
-    setElapsedTime('00:00');
-    setIsRunning(true);
-    setIsPaused(false);
-    setStatusText('Đang gia công...');
-    setStatusType('running');
-
-    isStreamingRef.current = true;
-    isPausedRef.current = false;
-    isCancelledRef.current = false;
-
-    // Duy trì status polling đều đặn (200ms - 5Hz) để đồng bộ telemetry
-    if (grblSerial.isConnected) {
-      grblSerial.startStatusPolling(200);
-    }
-
-    addLog(`Bắt đầu truyền phát ${commands.length} lệnh G-Code xuống bo mạch GRBL qua cổng COM...`, 'sys');
-
-    const startTime = Date.now();
-    let sentCount = 0;
-
-    for (let i = 0; i < commands.length; i++) {
-      if (isCancelledRef.current || !isStreamingRef.current) {
-        addLog('Đã dừng truyền mã G-code.', 'warn');
-        break;
-      }
-
-      while (isPausedRef.current && isStreamingRef.current && !isCancelledRef.current) {
-        await new Promise((resolve) => setTimeout(resolve, 150));
-      }
-
-      if (isCancelledRef.current || !isStreamingRef.current) break;
-
-      const cmd = commands[i];
-
-      try {
-        const resp = await grblSerial.sendCommandAndWait(cmd, 30000);
-
-        if (resp === 'error:DeviceLost' || !grblSerial.isConnected) {
-          addLog('⚠️ Mất kết nối USB với bo mạch ("The device has been lost"). Hiện tượng này xảy ra khi nguồn 12V/24V bị sụt áp lúc Laser phát công suất khiến bo mạch vi điều khiển tự khởi động lại, hoặc cáp USB bị nhiễu điện từ (EMI). Hãy kiểm tra lại nguồn cấp hoặc hạ công suất Laser PWM.', 'err');
-          break;
-        }
-
-        sentCount++;
-
-        if (resp && (resp.startsWith('error') || resp.startsWith('ALARM'))) {
-          addLog(`[Lỗi GRBL dòng ${i + 1}]: ${resp} (Lệnh: ${cmd})`, 'err');
-        }
-
-        // Cập nhật tiến độ sau mỗi 5 lệnh hoặc lệnh cuối
-        if (sentCount % 5 === 0 || sentCount === commands.length) {
-          const percent = Math.min(100, parseFloat(((sentCount / commands.length) * 100).toFixed(1)));
-          setProgress(percent);
-          setCurrentLine(sentCount);
-
-          const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
-          const elMins = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
-          const elSecs = String(elapsedSec % 60).padStart(2, '0');
-          setElapsedTime(`${elMins}:${elSecs}`);
-
-          const linesPerSec = sentCount / (elapsedSec || 1);
-          if (linesPerSec > 0) {
-            const remainSec = Math.max(0, Math.round((commands.length - sentCount) / linesPerSec));
-            const mins = String(Math.floor(remainSec / 60)).padStart(2, '0');
-            const secs = String(remainSec % 60).padStart(2, '0');
-            setEstimatedTime(`${mins}:${secs}`);
-          }
-        }
-      } catch (err) {
-        addLog(`Lỗi truyền lệnh G-code [${cmd}]: ${err.message}`, 'err');
-        if (grblSerial.isConnected) {
-          try { await grblSerial.sendCommand('M5'); } catch (_) {}
-        }
-        break;
-      }
-    }
-
-    isStreamingRef.current = false;
-    setIsRunning(false);
-    setIsPaused(false);
-
-    // Kích hoạt lại polling sau khi gia công xong nếu cổng vẫn còn kết nối
-    if (grblSerial.isConnected) {
-      grblSerial.startStatusPolling(500);
-    }
-
-    if (!isCancelledRef.current && sentCount === commands.length) {
-      setProgress(100);
-      setCurrentLine(commands.length);
-      setStatusText('Hoàn tất khắc');
-      setStatusType('ready');
-      setEstimatedTime('00:00');
-      addLog('M5 ; Tắt tia laser', 'cmd');
-      addLog('G0 X0 Y0 ; Về gốc phôi', 'cmd');
-      addLog('Gia công hoàn tất thành công 100%!', 'sys');
-      try {
-        await grblSerial.sendCommand('M5');
-        await grblSerial.sendCommand('G0 X0 Y0');
-      } catch (_) {}
-
-      const targetObj = target || elements[0];
-      const historyPayload = {
-        originalFilename: targetObj ? targetObj.name : 'Dự án tổng hợp',
-        totalGcodeLines: commands.length,
-        engravingSpeed: feedRate,
-        laserPower: Math.round((laserPower / 100) * 1000),
-        dpi,
-        outputWidthMm: targetObj?.width || 0.0,
-        outputHeightMm: targetObj?.height || 0.0,
-        originXMm: targetObj?.x || 0.0,
-        originYMm: targetObj?.y || 0.0,
-        mode,
-        materialName: targetObj?.type === 'image' ? 'Ảnh Dithering' : 'Vector',
-        status: 'Hoàn tất',
-        gcodeContent: gcodeText
-      };
-
-      const newLocalItem = {
-        name: historyPayload.originalFilename,
-        date: new Date().toLocaleString('vi-VN'),
-        lines: commands.length.toLocaleString(),
-        feedRate,
-        power: Math.round((laserPower / 100) * 1000),
-        status: 'Hoàn tất',
-        gcode: gcodeText
-      };
-
-      setHistoryList((prevList) => [newLocalItem, ...prevList]);
-
-      historyApi.saveHistory(currentUser?.email, historyPayload)
-        .then((res) => {
-          addLog(`[Cloud CSDL] Đã lưu lịch sử gia công "${historyPayload.originalFilename}" (ID: ${res.data?.historyId}) lên CSDL thành công!`, 'sys');
-          loadCloudHistory();
-        })
-        .catch((err) => {
-          console.warn('Lưu lịch sử lên server thất bại, đã giữ bản ghi cục bộ:', err.message);
-        });
-    }
+    // Mở modal G-code để người dùng kiểm tra trực quan và bấm gửi điều phối Cloud IoT
+    setIsGCodeOpen(true);
   };
 
   // Pause Job
@@ -1274,11 +1182,18 @@ export default function App() {
     setIsRunning(false);
     setIsPaused(false);
     setIsFraming(false);
-    setStatusText('Đã dừng khẩn cấp');
-    setStatusType('stopped');
+    setProgress(0);
+    setCurrentLine(0);
+    setStatusText('Trạng thái: Sẵn sàng');
+    setStatusType('ready');
 
     addLog('! (DỪNG KHẨN CẤP / E-STOP)', 'err');
     addLog('M5 (CẮT TIA LASER NGAY LẬP TỨC)', 'err');
+
+    if (activeJob?.jobCode) {
+      handleAbortIoTJob(activeJob.jobCode);
+    }
+
     if (isConnected) {
       try {
         await grblSerial.emergencyStop();
@@ -1295,8 +1210,8 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    const baseName = selectedElem ? selectedElem.name.replace(/\.[^/.]+$/, '') : 'photoncraft';
-    link.download = `${baseName}_laser.nc`;
+    const baseName = selectedElem ? `${selectedElem.name.replace(/\.[^/.]+$/, '')}_laser.nc` : 'photoncraft_laser.nc';
+    link.download = baseName;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1307,6 +1222,13 @@ export default function App() {
   // Điều phối Job khắc laser tới máy IoT (MKS DLC32 V2.1) qua Cloud Backend
   const handleDispatchIoTJob = async (targetDevice = 'LASER-HN-001') => {
     if (isDispatchingJob) return;
+
+    const currentDeviceStatus = (cloudDevice?.connectionStatus || 'OFFLINE').toUpperCase();
+    if (currentDeviceStatus === 'OFFLINE') {
+      addLog(`❌ [IoT Cloud] Không thể điều phối Job: Thiết bị ${targetDevice} đang Ngoại tuyến (OFFLINE)! Vui lòng bật nguồn máy trước.`, 'err');
+      alert(`Không thể gửi Job tới máy ${targetDevice}:\nThiết bị đang Ngoại tuyến (OFFLINE).\nVui lòng cắm nguồn máy và đảm bảo bo mạch MKS DLC32 đã kết nối Wi-Fi trước khi gửi lệnh!`);
+      return;
+    }
 
     const gcodeText = generateGCodeText();
     if (!gcodeText || elements.length === 0) {
@@ -1345,7 +1267,13 @@ export default function App() {
       const response = await jobApi.dispatchJobJson(payload);
       const jobData = response.data;
 
-      addLog(`✅ [IoT Cloud] Điều phối thành công Job ${jobData.jobCode} tới ${jobData.deviceCode} (SHA-256: ${jobData.sha256Checksum ? jobData.sha256Checksum.slice(0, 8) : '—'}...)`, 'sys');
+      if (jobData.status === 'QUEUED') {
+        const qPos = jobData.queuePosition || 1;
+        addLog(`⏳ [Hàng đợi gia công] Yêu cầu Job ${jobData.jobCode} đã vào HÀNG ĐỢI (Vị trí #${qPos})! Máy đang bận, Quản máy sẽ kiểm tra và điều phối khi máy rảnh.`, 'warn');
+        alert(`Đã tiếp nhận yêu cầu khắc thành công!\n\n📋 Trạng thái: HÀNG ĐỢI GIA CÔNG (Vị trí #${qPos})\n\n💡 Máy khắc hiện đang bận gia công job khác. Bạn không cần gửi lại, Quản máy sẽ phê duyệt và nạp vào máy khi hoàn thành job trước.`);
+      } else {
+        addLog(`✅ [IoT Cloud] Điều phối thành công Job ${jobData.jobCode} tới ${jobData.deviceCode} (SHA-256: ${jobData.sha256Checksum ? jobData.sha256Checksum.slice(0, 8) : '—'}...)`, 'sys');
+      }
 
       setActiveJob({
         jobId: jobData.jobId,
@@ -1353,7 +1281,9 @@ export default function App() {
         deviceCode: jobData.deviceCode || targetDevice,
         sha256Checksum: jobData.sha256Checksum || '',
         originalFilename: jobData.originalFilename || fileName,
-        totalLines: jobData.totalLines || totalLines
+        totalLines: jobData.totalLines || totalLines,
+        status: jobData.status,
+        queuePosition: jobData.queuePosition
       });
 
       setIsGCodeOpen(false);
@@ -1489,6 +1419,7 @@ export default function App() {
         onLogout={handleLogout}
         activeJob={activeJob}
         onOpenJobProgress={() => setIsJobProgressOpen(true)}
+        cloudDevice={cloudDevice}
       />
 
       {/* 2. MAIN WORKSPACE CONTAINER */}
@@ -1638,8 +1569,8 @@ export default function App() {
           />
         )}
 
-        {/* Dedicated Admin & Machine Operator Dashboard */}
-        {activeTab === 'admin-dashboard' && (
+        {/* Dedicated Admin & Machine Operator Dashboard (Chỉ kích hoạt khi là Quản trị viên ADMIN/OPERATOR) */}
+        {activeTab === 'admin-dashboard' && isAdmin && (
           <AdminDashboardView
             onBackToStudio={() => setActiveTab('canvas-studio')}
             onNotify={addLog}
@@ -1650,7 +1581,9 @@ export default function App() {
                 deviceCode: job.deviceCode || 'LASER-HN-001',
                 sha256Checksum: job.sha256Checksum || '',
                 originalFilename: job.originalFilename || 'logo.gcode',
-                totalLines: job.totalLines || 0
+                totalLines: job.totalLines || 0,
+                status: job.status,
+                queuePosition: job.queuePosition
               });
               setIsJobProgressOpen(true);
             }}
@@ -1668,6 +1601,7 @@ export default function App() {
         onDispatchIoT={handleDispatchIoTJob}
         isDispatching={isDispatchingJob}
         deviceCode="LASER-HN-001"
+        deviceStatus={cloudDevice?.connectionStatus || 'OFFLINE'}
       />
 
       <JobProgressModal
@@ -1677,6 +1611,8 @@ export default function App() {
         deviceCode={activeJob?.deviceCode || 'LASER-HN-001'}
         sha256={activeJob?.sha256Checksum || ''}
         fileName={activeJob?.originalFilename || ''}
+        initialStatus={activeJob?.status}
+        queuePosition={activeJob?.queuePosition}
         onAbortJob={handleAbortIoTJob}
       />
 

@@ -13,6 +13,8 @@ export default function AdminDashboardView({
   const [devices, setDevices] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [selectedFilter, setSelectedFilter] = useState('ALL'); // 'ALL' | 'AWAITING' | 'PRINTING' | 'COMPLETED'
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [isLoading, setIsLoading] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState(null);
   const [feedback, setFeedback] = useState(null);
@@ -128,17 +130,91 @@ export default function AdminDashboardView({
     }
   };
 
+  // Danh sách các job trong Hàng đợi được sắp xếp theo thời gian đến trước (FIFO)
+  const queuedJobs = jobs.filter((j) => j.status === 'QUEUED');
+  const fifoQueuedJobs = [...queuedJobs].sort((a, b) => {
+    const timeA = a.dispatchedAt ? new Date(a.dispatchedAt).getTime() : 0;
+    const timeB = b.dispatchedAt ? new Date(b.dispatchedAt).getTime() : 0;
+    return (timeA - timeB) || (Number(a.jobId ?? a.id ?? 0) - Number(b.jobId ?? b.id ?? 0));
+  });
+
+  const getQueuePosition = (jobCode) => {
+    const idx = fifoQueuedJobs.findIndex((q) => q.jobCode === jobCode);
+    return idx !== -1 ? idx + 1 : null;
+  };
+
+  const primaryDev = devices.find((d) => d.deviceCode === 'LASER-HN-001') || devices[0];
+  const devStatus = primaryDev?.connectionStatus || 'OFFLINE';
+  const hasActiveJob = jobs.some((j) =>
+    (j.deviceCode === primaryDev?.deviceCode || !j.deviceCode) &&
+    (j.status === 'PRINTING' || j.status === 'DOWNLOADING' || j.status === 'VALIDATING' || j.status === 'AWAITING_ONSITE_CONFIRMATION')
+  );
+  const isMachineFree = devStatus !== 'OFFLINE' && devStatus !== 'BUSY' && !hasActiveJob;
+
   // Lọc danh sách Jobs theo trạng thái
   const filteredJobs = jobs.filter((job) => {
     if (selectedFilter === 'AWAITING') return job.status === 'AWAITING_ONSITE_CONFIRMATION';
+    if (selectedFilter === 'QUEUED') return job.status === 'QUEUED';
     if (selectedFilter === 'PRINTING') return job.status === 'PRINTING';
     if (selectedFilter === 'COMPLETED') return job.status === 'COMPLETED';
     return true;
   });
 
+  // Sắp xếp danh sách: Nếu xem Hàng đợi thì ưu tiên theo FIFO (Cũ nhất -> Mới nhất để xử lý từ từ),
+  // các tab khác sắp xếp từ mới nhất đến cũ nhất (Newest -> Oldest)
+  const sortedJobs = [...filteredJobs].sort((a, b) => {
+    if (selectedFilter === 'QUEUED') {
+      const timeA = a.dispatchedAt ? new Date(a.dispatchedAt).getTime() : 0;
+      const timeB = b.dispatchedAt ? new Date(b.dispatchedAt).getTime() : 0;
+      return (timeA - timeB) || (Number(a.jobId ?? a.id ?? 0) - Number(b.jobId ?? b.id ?? 0));
+    }
+    // 1. So sánh theo thời gian dispatchedAt
+    const timeA = a.dispatchedAt ? new Date(a.dispatchedAt).getTime() : 0;
+    const timeB = b.dispatchedAt ? new Date(b.dispatchedAt).getTime() : 0;
+    if (timeA && timeB && timeA !== timeB) {
+      return timeB - timeA;
+    }
+    // 2. So sánh theo ID bản ghi giảm dần
+    const idA = Number(a.jobId ?? a.id ?? 0);
+    const idB = Number(b.jobId ?? b.id ?? 0);
+    if (idA && idB && idA !== idB) {
+      return idB - idA;
+    }
+    // 3. Fallback: So sánh chuỗi mã Job giảm dần (ví dụ JOB-20261031 > JOB-20261019)
+    return String(b.jobCode || '').localeCompare(String(a.jobCode || ''));
+  });
+
+  // Tính toán phân trang
+  const totalItems = sortedJobs.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const validCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (validCurrentPage - 1) * pageSize;
+  const paginatedJobs = sortedJobs.slice(startIndex, startIndex + pageSize);
+
+  const queuedCount = queuedJobs.length;
   const awaitingCount = jobs.filter((j) => j.status === 'AWAITING_ONSITE_CONFIRMATION').length;
   const printingCount = jobs.filter((j) => j.status === 'PRINTING').length;
   const completedCount = jobs.filter((j) => j.status === 'COMPLETED').length;
+
+  // Đổi bộ lọc và đưa về trang 1
+  const handleFilterChange = (filter) => {
+    setSelectedFilter(filter);
+    setCurrentPage(1);
+  };
+
+  // Tạo danh sách số trang hiển thị
+  const getPageNumbers = () => {
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+    if (validCurrentPage <= 4) {
+      return [1, 2, 3, 4, 5, '...', totalPages];
+    }
+    if (validCurrentPage >= totalPages - 3) {
+      return [1, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+    }
+    return [1, '...', validCurrentPage - 1, validCurrentPage, validCurrentPage + 1, '...', totalPages];
+  };
 
   return (
     <div className="laser-parameters-view" style={{ flex: 1, overflowY: 'auto' }}>
@@ -219,8 +295,8 @@ export default function AdminDashboardView({
               width: 44,
               height: 44,
               borderRadius: 'var(--radius-md)',
-              backgroundColor: 'rgba(37, 99, 235, 0.12)',
-              color: 'var(--primary-container)',
+              backgroundColor: devStatus === 'ONLINE' ? 'rgba(22, 163, 74, 0.12)' : devStatus === 'BUSY' ? 'rgba(217, 119, 6, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+              color: devStatus === 'ONLINE' ? '#16a34a' : devStatus === 'BUSY' ? '#d97706' : '#ef4444',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center'
@@ -231,13 +307,49 @@ export default function AdminDashboardView({
               <div style={{ fontSize: 11, color: 'var(--secondary)', fontWeight: 500 }}>TRẠNG THÁI TRẠM MÁY</div>
               <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--on-surface)', display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
                 <span>LASER-HN-001</span>
-                <span className="status-pulse-dot running" style={{ width: 8, height: 8 }} />
+                <span className={`status-pulse-dot ${devStatus === 'ONLINE' ? 'ready' : devStatus === 'BUSY' ? 'running' : 'stopped'}`} style={{ width: 8, height: 8 }} />
               </div>
-              <div style={{ fontSize: 11, color: '#16a34a', marginTop: 1 }}>Makerbase MKS DLC32 V2.1</div>
+              <div style={{ fontSize: 11, color: devStatus === 'ONLINE' ? '#16a34a' : devStatus === 'BUSY' ? '#d97706' : '#ef4444', marginTop: 1, fontWeight: 600 }}>
+                {devStatus === 'ONLINE' ? 'Sẵn sàng tiếp nhận' : devStatus === 'BUSY' ? 'Máy đang bận' : 'Ngoại tuyến (OFFLINE)'}
+              </div>
             </div>
           </div>
 
-          {/* Card 2: Chờ xác nhận an toàn */}
+          {/* Card 2: Hàng đợi gia công (FIFO) */}
+          <div style={{
+            backgroundColor: queuedCount > 0 ? 'rgba(217, 119, 6, 0.08)' : 'var(--surface-container-low)',
+            borderRadius: 'var(--radius-lg)',
+            border: queuedCount > 0 ? '1px solid rgba(217, 119, 6, 0.4)' : '1px solid rgba(195, 198, 215, 0.4)',
+            padding: '14px 18px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 14,
+            cursor: 'pointer'
+          }} onClick={() => handleFilterChange('QUEUED')}>
+            <div style={{
+              width: 44,
+              height: 44,
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: queuedCount > 0 ? 'rgba(217, 119, 6, 0.2)' : 'rgba(100, 116, 139, 0.12)',
+              color: queuedCount > 0 ? '#b45309' : 'var(--secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 24 }}>hourglass_top</span>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: queuedCount > 0 ? '#b45309' : 'var(--secondary)', fontWeight: 500 }}>HÀNG ĐỢI GIA CÔNG (FIFO)</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: queuedCount > 0 ? '#b45309' : 'var(--on-surface)', marginTop: 2 }}>
+                {queuedCount} <span style={{ fontSize: 12, fontWeight: 500 }}>Job đang chờ</span>
+              </div>
+              <div style={{ fontSize: 11, color: queuedCount > 0 ? '#b45309' : 'var(--secondary)', marginTop: 1 }}>
+                {queuedCount > 0 ? '👉 Nhấp xem danh sách chờ' : 'Hàng đợi hiện đang trống'}
+              </div>
+            </div>
+          </div>
+
+          {/* Card 3: Chờ xác nhận an toàn tại chỗ */}
           <div style={{
             backgroundColor: awaitingCount > 0 ? 'var(--warning-container)' : 'var(--surface-container-low)',
             borderRadius: 'var(--radius-lg)',
@@ -247,7 +359,7 @@ export default function AdminDashboardView({
             alignItems: 'center',
             gap: 14,
             cursor: 'pointer'
-          }} onClick={() => setSelectedFilter('AWAITING')}>
+          }} onClick={() => handleFilterChange('AWAITING')}>
             <div style={{
               width: 44,
               height: 44,
@@ -470,7 +582,7 @@ export default function AdminDashboardView({
                   color: selectedFilter === 'ALL' ? '#ffffff' : 'var(--on-surface)',
                   fontWeight: selectedFilter === 'ALL' ? 600 : 400
                 }}
-                onClick={() => setSelectedFilter('ALL')}
+                onClick={() => handleFilterChange('ALL')}
               >
                 Tất cả ({jobs.length})
               </button>
@@ -482,9 +594,21 @@ export default function AdminDashboardView({
                   color: selectedFilter === 'AWAITING' ? '#ffffff' : 'var(--warning)',
                   fontWeight: selectedFilter === 'AWAITING' ? 600 : 500
                 }}
-                onClick={() => setSelectedFilter('AWAITING')}
+                onClick={() => handleFilterChange('AWAITING')}
               >
-                ⚠️ Cần phê duyệt ({awaitingCount})
+                ⚠️ Chờ duyệt tại chỗ ({awaitingCount})
+              </button>
+              <button
+                type="button"
+                className="quick-cmd-btn"
+                style={{
+                  backgroundColor: selectedFilter === 'QUEUED' ? '#b45309' : 'var(--surface-container-low)',
+                  color: selectedFilter === 'QUEUED' ? '#ffffff' : '#b45309',
+                  fontWeight: selectedFilter === 'QUEUED' ? 600 : 500
+                }}
+                onClick={() => handleFilterChange('QUEUED')}
+              >
+                ⏳ Hàng đợi ({queuedCount})
               </button>
               <button
                 type="button"
@@ -494,7 +618,7 @@ export default function AdminDashboardView({
                   color: selectedFilter === 'PRINTING' ? '#ffffff' : 'var(--on-surface)',
                   fontWeight: selectedFilter === 'PRINTING' ? 600 : 400
                 }}
-                onClick={() => setSelectedFilter('PRINTING')}
+                onClick={() => handleFilterChange('PRINTING')}
               >
                 Đang khắc ({printingCount})
               </button>
@@ -506,7 +630,7 @@ export default function AdminDashboardView({
                   color: selectedFilter === 'COMPLETED' ? '#ffffff' : 'var(--on-surface)',
                   fontWeight: selectedFilter === 'COMPLETED' ? 600 : 400
                 }}
-                onClick={() => setSelectedFilter('COMPLETED')}
+                onClick={() => handleFilterChange('COMPLETED')}
               >
                 Hoàn tất ({completedCount})
               </button>
@@ -531,209 +655,421 @@ export default function AdminDashboardView({
               <div style={{ fontSize: 11, marginTop: 4 }}>Khi người dùng nhấn "Gửi đến máy IoT", Job sẽ hiển thị tại đây.</div>
             </div>
           ) : (
-            <div style={{ overflowX: 'auto', marginTop: 12 }}>
-              <table style={{
-                width: '100%',
-                borderCollapse: 'collapse',
-                fontSize: 12,
-                backgroundColor: 'var(--surface-container-lowest)',
-                borderRadius: 'var(--radius-md)',
-                overflow: 'hidden'
-              }}>
-                <thead>
-                  <tr style={{
-                    backgroundColor: 'var(--surface-container)',
-                    borderBottom: '1px solid rgba(195, 198, 215, 0.5)',
-                    textAlign: 'left'
-                  }}>
-                    <th style={{ padding: '10px 14px' }}>Mã Job</th>
-                    <th style={{ padding: '10px 14px' }}>Tệp G-code</th>
-                    <th style={{ padding: '10px 14px' }}>Phôi / Vùng khắc</th>
-                    <th style={{ padding: '10px 14px' }}>Thông số F/S</th>
-                    <th style={{ padding: '10px 14px' }}>SHA-256</th>
-                    <th style={{ padding: '10px 14px' }}>Trạng thái & Tiến độ</th>
-                    <th style={{ padding: '10px 14px', textAlign: 'right' }}>Hành động Quản trị</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredJobs.map((job) => {
-                    const isAwaiting = job.status === 'AWAITING_ONSITE_CONFIRMATION';
-                    const isPrinting = job.status === 'PRINTING';
-                    const isCompleted = job.status === 'COMPLETED';
-                    const pct = job.currentProgress || 0;
+            <div style={{
+              marginTop: 12,
+              backgroundColor: 'var(--surface-container-lowest)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid rgba(195, 198, 215, 0.4)',
+              overflow: 'hidden'
+            }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{
+                  width: '100%',
+                  borderCollapse: 'collapse',
+                  fontSize: 12
+                }}>
+                  <thead>
+                    <tr style={{
+                      backgroundColor: 'var(--surface-container)',
+                      borderBottom: '1px solid rgba(195, 198, 215, 0.5)',
+                      textAlign: 'left'
+                    }}>
+                      <th style={{ padding: '10px 14px' }}>Mã Job</th>
+                      <th style={{ padding: '10px 14px' }}>Tệp G-code</th>
+                      <th style={{ padding: '10px 14px' }}>Phôi / Vùng khắc</th>
+                      <th style={{ padding: '10px 14px' }}>Thông số F/S</th>
+                      <th style={{ padding: '10px 14px' }}>SHA-256</th>
+                      <th style={{ padding: '10px 14px' }}>Trạng thái & Tiến độ</th>
+                      <th style={{ padding: '10px 14px', textAlign: 'right' }}>Hành động Quản trị</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedJobs.map((job) => {
+                      const isAwaiting = job.status === 'AWAITING_ONSITE_CONFIRMATION';
+                      const isPrinting = job.status === 'PRINTING';
+                      const isCompleted = job.status === 'COMPLETED';
+                      const pct = job.currentProgress || 0;
 
-                    return (
-                      <tr
-                        key={job.jobCode || job.jobId}
-                        style={{
-                          borderBottom: '1px solid rgba(195, 198, 215, 0.3)',
-                          backgroundColor: isAwaiting ? 'rgba(217, 119, 6, 0.05)' : 'transparent'
-                        }}
-                      >
-                        {/* Mã Job */}
-                        <td style={{ padding: '12px 14px', verticalAlign: 'middle' }}>
-                          <strong style={{ color: 'var(--on-surface)', fontFamily: 'var(--font-mono)' }}>
-                            {job.jobCode}
-                          </strong>
-                          <div style={{ fontSize: 10, color: 'var(--secondary)', marginTop: 2 }}>
-                            {job.deviceCode || 'LASER-HN-001'}
-                          </div>
-                        </td>
+                      return (
+                        <tr
+                          key={job.jobCode || job.jobId}
+                          style={{
+                            borderBottom: '1px solid rgba(195, 198, 215, 0.3)',
+                            backgroundColor: isAwaiting ? 'rgba(217, 119, 6, 0.05)' : 'transparent'
+                          }}
+                        >
+                          {/* Mã Job */}
+                          <td style={{ padding: '12px 14px', verticalAlign: 'middle' }}>
+                            <strong style={{ color: 'var(--on-surface)', fontFamily: 'var(--font-mono)' }}>
+                              {job.jobCode}
+                            </strong>
+                            <div style={{ fontSize: 10, color: 'var(--secondary)', marginTop: 2 }}>
+                              {job.deviceCode || 'LASER-HN-001'}
+                              {job.dispatchedAt && (
+                                <span style={{ marginLeft: 6 }}>
+                                  · {new Date(job.dispatchedAt).toLocaleString('vi-VN')}
+                                </span>
+                              )}
+                            </div>
+                          </td>
 
-                        {/* Tệp G-code */}
-                        <td style={{ padding: '12px 14px', verticalAlign: 'middle' }}>
-                          <div style={{ fontWeight: 600, color: 'var(--on-surface)' }}>
-                            {job.originalFilename || 'logo.gcode'}
-                          </div>
-                          <div style={{ fontSize: 10, color: 'var(--secondary)', marginTop: 2 }}>
-                            {job.totalLines ? `${job.totalLines.toLocaleString()} dòng` : ''} · {job.fileSizeBytes ? `${Math.round(job.fileSizeBytes / 1024)} KB` : ''}
-                          </div>
-                        </td>
+                          {/* Tệp G-code */}
+                          <td style={{ padding: '12px 14px', verticalAlign: 'middle' }}>
+                            <div style={{ fontWeight: 600, color: 'var(--on-surface)' }}>
+                              {job.originalFilename || 'logo.gcode'}
+                            </div>
+                            <div style={{ fontSize: 10, color: 'var(--secondary)', marginTop: 2 }}>
+                              {job.totalLines ? `${job.totalLines.toLocaleString()} dòng` : ''} · {job.fileSizeBytes ? `${Math.round(job.fileSizeBytes / 1024)} KB` : ''}
+                            </div>
+                          </td>
 
-                        {/* Phôi / Vùng khắc */}
-                        <td style={{ padding: '12px 14px', verticalAlign: 'middle' }}>
-                          <span style={{
-                            display: 'inline-block',
-                            backgroundColor: 'var(--surface-container-low)',
-                            padding: '2px 8px',
-                            borderRadius: 'var(--radius-xs)',
-                            fontSize: 11
-                          }}>
-                            {job.materialType || 'Gỗ Plywood 3mm'}
-                          </span>
-                          <div style={{ fontSize: 10, color: 'var(--secondary)', marginTop: 3 }}>
-                            {job.targetWidthMm || 100} × {job.targetHeightMm || 100} mm
-                          </div>
-                        </td>
-
-                        {/* Thông số F/S */}
-                        <td style={{ padding: '12px 14px', verticalAlign: 'middle', fontFamily: 'var(--font-mono)' }}>
-                          <div>F{job.feedRate || 1500}</div>
-                          <div style={{ fontSize: 10, color: 'var(--secondary)' }}>S{job.laserPower || 800}</div>
-                        </td>
-
-                        {/* SHA-256 */}
-                        <td style={{ padding: '12px 14px', verticalAlign: 'middle' }}>
-                          <span
-                            title={job.sha256Checksum}
-                            style={{
-                              fontFamily: 'var(--font-mono)',
-                              fontSize: 10,
-                              backgroundColor: 'var(--surface-container)',
-                              padding: '2px 6px',
-                              borderRadius: 'var(--radius-xs)',
-                              display: 'inline-block'
-                            }}
-                          >
-                            {job.sha256Checksum ? `${job.sha256Checksum.slice(0, 6)}…${job.sha256Checksum.slice(-6)}` : '—'}
-                          </span>
-                        </td>
-
-                        {/* Trạng thái & Tiến độ */}
-                        <td style={{ padding: '12px 14px', verticalAlign: 'middle', minWidth: 160 }}>
-                          {isAwaiting ? (
+                          {/* Phôi / Vùng khắc */}
+                          <td style={{ padding: '12px 14px', verticalAlign: 'middle' }}>
                             <span style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 5,
-                              color: 'var(--warning-on-container)',
-                              backgroundColor: 'var(--warning-bg)',
-                              padding: '3px 8px',
+                              display: 'inline-block',
+                              backgroundColor: 'var(--surface-container-low)',
+                              padding: '2px 8px',
                               borderRadius: 'var(--radius-xs)',
-                              fontWeight: 600,
                               fontSize: 11
                             }}>
-                              <span className="status-pulse-dot" style={{ backgroundColor: 'var(--warning)' }} />
-                              Chờ phê duyệt an toàn
+                              {job.materialType || 'Gỗ Plywood 3mm'}
                             </span>
-                          ) : (
-                            <div>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3 }}>
-                                <span style={{ fontWeight: 600, color: isCompleted ? '#16a34a' : 'var(--primary-container)' }}>
-                                  {job.status}
-                                </span>
-                                <span>{pct.toFixed(0)}%</span>
-                              </div>
-                              <div style={{
-                                width: '100%',
-                                height: 6,
-                                backgroundColor: 'var(--surface-container-high)',
-                                borderRadius: 3,
-                                overflow: 'hidden'
-                              }}>
-                                <div style={{
-                                  width: `${Math.min(100, Math.max(0, pct))}%`,
-                                  height: '100%',
-                                  backgroundColor: isCompleted ? '#16a34a' : 'var(--primary-container)',
-                                  transition: 'width 0.3s ease'
-                                }} />
-                              </div>
+                            <div style={{ fontSize: 10, color: 'var(--secondary)', marginTop: 3 }}>
+                              {job.targetWidthMm || 100} × {job.targetHeightMm || 100} mm
                             </div>
-                          )}
-                        </td>
+                          </td>
 
-                        {/* Hành động Quản trị */}
-                        <td style={{ padding: '12px 14px', verticalAlign: 'middle', textAlign: 'right' }}>
-                          <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                            {/* Nút Phê duyệt An toàn cho Job đang AWAITING */}
-                            {isAwaiting && (
-                              <button
-                                type="button"
-                                className="btn-trigger-start"
-                                style={{
-                                  padding: '6px 12px',
-                                  fontSize: 11,
-                                  backgroundColor: '#16a34a'
-                                }}
-                                disabled={actionLoadingId === job.jobCode}
-                                onClick={() => handleConfirmSafety(job.jobCode)}
-                                title="Kiểm tra phôi gỗ, kính bảo hộ và cấp phép bắt đầu phát tia khắc"
-                              >
-                                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-                                  verified
-                                </span>
-                                <span>{actionLoadingId === job.jobCode ? 'Đang duyệt...' : 'Phê duyệt & Bắt đầu'}</span>
-                              </button>
-                            )}
+                          {/* Thông số F/S */}
+                          <td style={{ padding: '12px 14px', verticalAlign: 'middle', fontFamily: 'var(--font-mono)' }}>
+                            <div>F{job.feedRate || 1500}</div>
+                            <div style={{ fontSize: 10, color: 'var(--secondary)' }}>S{job.laserPower || 800}</div>
+                          </td>
 
-                            {/* Nút xem Live Progress Modal */}
-                            {isPrinting && (
-                              <button
-                                type="button"
-                                className="btn-header-action"
-                                style={{ padding: '6px 10px', fontSize: 11 }}
-                                onClick={() => onOpenJobProgress?.(job)}
-                                title="Mở bảng giám sát tiến độ Live"
-                              >
-                                <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--primary-container)' }}>
-                                  visibility
-                                </span>
-                                <span>Xem Live</span>
-                              </button>
-                            )}
+                          {/* SHA-256 */}
+                          <td style={{ padding: '12px 14px', verticalAlign: 'middle' }}>
+                            <span
+                              title={job.sha256Checksum}
+                              style={{
+                                fontFamily: 'var(--font-mono)',
+                                fontSize: 10,
+                                backgroundColor: 'var(--surface-container)',
+                                padding: '2px 6px',
+                                borderRadius: 'var(--radius-xs)',
+                                display: 'inline-block'
+                              }}
+                            >
+                              {job.sha256Checksum ? `${job.sha256Checksum.slice(0, 6)}…${job.sha256Checksum.slice(-6)}` : '—'}
+                            </span>
+                          </td>
 
-                            {/* Nút Hủy khẩn cấp nếu chưa hoàn thành */}
-                            {!isCompleted && job.status !== 'CANCELLED' && job.status !== 'FAILED' && (
-                              <button
-                                type="button"
-                                className="btn-trigger-stop"
-                                style={{ padding: '6px 8px', fontSize: 11 }}
-                                disabled={actionLoadingId === job.jobCode}
-                                onClick={() => handleCancelJob(job.jobCode)}
-                                title="Dừng khẩn cấp / Hủy Job"
-                              >
-                                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-                                  cancel
+                          {/* Trạng thái & Tiến độ */}
+                          <td style={{ padding: '12px 14px', verticalAlign: 'middle', minWidth: 160 }}>
+                            {job.status === 'QUEUED' ? (
+                              <div>
+                                <span style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 5,
+                                  color: '#b45309',
+                                  backgroundColor: '#fef3c7',
+                                  padding: '3px 8px',
+                                  borderRadius: 'var(--radius-xs)',
+                                  fontWeight: 600,
+                                  fontSize: 11
+                                }}>
+                                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>hourglass_top</span>
+                                  Hàng đợi #{getQueuePosition(job.jobCode) || job.queuePosition || 1}
                                 </span>
-                              </button>
+                                <div style={{ fontSize: 10, color: 'var(--secondary)', marginTop: 3 }}>
+                                  Chờ máy rảnh & Quản máy duyệt
+                                </div>
+                              </div>
+                            ) : isAwaiting ? (
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                color: 'var(--warning-on-container)',
+                                backgroundColor: 'var(--warning-bg)',
+                                padding: '3px 8px',
+                                borderRadius: 'var(--radius-xs)',
+                                fontWeight: 600,
+                                fontSize: 11
+                              }}>
+                                <span className="status-pulse-dot" style={{ backgroundColor: 'var(--warning)' }} />
+                                Chờ phê duyệt an toàn
+                              </span>
+                            ) : (
+                              <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3 }}>
+                                  <span style={{ fontWeight: 600, color: isCompleted ? '#16a34a' : 'var(--primary-container)' }}>
+                                    {job.status}
+                                  </span>
+                                  <span>{pct.toFixed(0)}%</span>
+                                </div>
+                                <div style={{
+                                  width: '100%',
+                                  height: 6,
+                                  backgroundColor: 'var(--surface-container-high)',
+                                  borderRadius: 3,
+                                  overflow: 'hidden'
+                                }}>
+                                  <div style={{
+                                    width: `${Math.min(100, Math.max(0, pct))}%`,
+                                    height: '100%',
+                                    backgroundColor: isCompleted ? '#16a34a' : 'var(--primary-container)',
+                                    transition: 'width 0.3s ease'
+                                  }} />
+                                </div>
+                              </div>
                             )}
-                          </div>
-                        </td>
-                      </tr>
+                          </td>
+
+                          {/* Hành động Quản trị */}
+                          <td style={{ padding: '12px 14px', verticalAlign: 'middle', textAlign: 'right' }}>
+                            <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                              {/* Nút Phê duyệt & Điều phối cho Job đang QUEUED */}
+                              {job.status === 'QUEUED' && (
+                                <>
+                                  {isMachineFree ? (
+                                    <button
+                                      type="button"
+                                      className="btn-trigger-start"
+                                      style={{
+                                        padding: '6px 12px',
+                                        fontSize: 11,
+                                        backgroundColor: '#2563eb'
+                                      }}
+                                      disabled={actionLoadingId === job.jobCode}
+                                      onClick={() => handleConfirmSafety(job.jobCode)}
+                                      title="Máy đang rảnh. Phê duyệt và nạp G-code vào máy để chuẩn bị gia công"
+                                    >
+                                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                                        send
+                                      </span>
+                                      <span>{actionLoadingId === job.jobCode ? 'Đang nạp...' : 'Phê duyệt & Vào máy'}</span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      className="btn-header-action"
+                                      style={{
+                                        padding: '6px 10px',
+                                        fontSize: 11,
+                                        opacity: 0.7,
+                                        cursor: 'not-allowed'
+                                      }}
+                                      disabled={true}
+                                      title="Máy hiện đang bận thực thi job khác. Job này sẽ ở trong hàng đợi cho đến khi máy hoàn thành."
+                                    >
+                                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+                                        hourglass_empty
+                                      </span>
+                                      <span>Chờ máy rảnh (#{getQueuePosition(job.jobCode) || job.queuePosition || 1})</span>
+                                    </button>
+                                  )}
+                                </>
+                              )}
+
+                              {/* Nút Phê duyệt An toàn cho Job đang AWAITING */}
+                              {isAwaiting && (
+                                <button
+                                  type="button"
+                                  className="btn-trigger-start"
+                                  style={{
+                                    padding: '6px 12px',
+                                    fontSize: 11,
+                                    backgroundColor: '#16a34a'
+                                  }}
+                                  disabled={actionLoadingId === job.jobCode}
+                                  onClick={() => handleConfirmSafety(job.jobCode)}
+                                  title="Kiểm tra phôi gỗ, kính bảo hộ và cấp phép bắt đầu phát tia khắc"
+                                >
+                                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                                    verified
+                                  </span>
+                                  <span>{actionLoadingId === job.jobCode ? 'Đang duyệt...' : 'Phê duyệt & Bắt đầu'}</span>
+                                </button>
+                              )}
+
+                              {/* Nút xem Live Progress Modal */}
+                              {isPrinting && (
+                                <button
+                                  type="button"
+                                  className="btn-header-action"
+                                  style={{ padding: '6px 10px', fontSize: 11 }}
+                                  onClick={() => onOpenJobProgress?.(job)}
+                                  title="Mở bảng giám sát tiến độ Live"
+                                >
+                                  <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--primary-container)' }}>
+                                    visibility
+                                  </span>
+                                  <span>Xem Live</span>
+                                </button>
+                              )}
+
+                              {/* Nút Hủy khẩn cấp nếu chưa hoàn thành */}
+                              {!isCompleted && job.status !== 'CANCELLED' && job.status !== 'FAILED' && (
+                                <button
+                                  type="button"
+                                  className="btn-trigger-stop"
+                                  style={{ padding: '6px 8px', fontSize: 11 }}
+                                  disabled={actionLoadingId === job.jobCode}
+                                  onClick={() => handleCancelJob(job.jobCode)}
+                                  title="Dừng khẩn cấp / Hủy Job"
+                                >
+                                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                                    cancel
+                                  </span>
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Thanh điều khiển phân trang */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 12,
+                padding: '10px 16px',
+                backgroundColor: 'var(--surface-container)',
+                borderTop: '1px solid rgba(195, 198, 215, 0.4)',
+                fontSize: 12,
+                color: 'var(--on-surface-variant)'
+              }}>
+                {/* Thông tin số lượng */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>Hiển thị</span>
+                  <strong style={{ color: 'var(--on-surface)' }}>
+                    {totalItems > 0 ? startIndex + 1 : 0} - {Math.min(startIndex + pageSize, totalItems)}
+                  </strong>
+                  <span>trên tổng số</span>
+                  <strong style={{ color: 'var(--on-surface)' }}>{totalItems}</strong>
+                  <span>Job (Mới nhất trước)</span>
+                </div>
+
+                {/* Chọn số dòng mỗi trang */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>Mỗi trang:</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid rgba(195, 198, 215, 0.6)',
+                      backgroundColor: 'var(--surface-container-lowest)',
+                      color: 'var(--on-surface)',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      outline: 'none'
+                    }}
+                  >
+                    <option value={5}>5 / trang</option>
+                    <option value={10}>10 / trang</option>
+                    <option value={20}>20 / trang</option>
+                    <option value={50}>50 / trang</option>
+                  </select>
+                </div>
+
+                {/* Nút phân trang Trước / 1, 2, 3 / Sau */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <button
+                    type="button"
+                    disabled={validCurrentPage <= 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 2,
+                      padding: '4px 8px',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid rgba(195, 198, 215, 0.6)',
+                      backgroundColor: validCurrentPage <= 1 ? 'transparent' : 'var(--surface-container-lowest)',
+                      color: validCurrentPage <= 1 ? 'var(--secondary)' : 'var(--on-surface)',
+                      cursor: validCurrentPage <= 1 ? 'not-allowed' : 'pointer',
+                      opacity: validCurrentPage <= 1 ? 0.4 : 1,
+                      fontSize: 12,
+                      fontWeight: 500,
+                      transition: 'all 0.15s ease'
+                    }}
+                    title="Trang trước"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>chevron_left</span>
+                    <span>Trước</span>
+                  </button>
+
+                  {getPageNumbers().map((page, idx) => {
+                    if (page === '...') {
+                      return (
+                        <span key={`dots-${idx}`} style={{ padding: '0 4px', color: 'var(--secondary)' }}>
+                          …
+                        </span>
+                      );
+                    }
+                    const isActive = page === validCurrentPage;
+                    return (
+                      <button
+                        key={`page-${page}`}
+                        type="button"
+                        onClick={() => setCurrentPage(page)}
+                        style={{
+                          minWidth: 28,
+                          height: 28,
+                          padding: '0 4px',
+                          borderRadius: 'var(--radius-sm)',
+                          border: isActive ? 'none' : '1px solid rgba(195, 198, 215, 0.6)',
+                          backgroundColor: isActive ? 'var(--primary-container)' : 'var(--surface-container-lowest)',
+                          color: isActive ? '#ffffff' : 'var(--on-surface)',
+                          fontWeight: isActive ? 600 : 400,
+                          cursor: 'pointer',
+                          fontSize: 12,
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        {page}
+                      </button>
                     );
                   })}
-                </tbody>
-              </table>
+
+                  <button
+                    type="button"
+                    disabled={validCurrentPage >= totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 2,
+                      padding: '4px 8px',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid rgba(195, 198, 215, 0.6)',
+                      backgroundColor: validCurrentPage >= totalPages ? 'transparent' : 'var(--surface-container-lowest)',
+                      color: validCurrentPage >= totalPages ? 'var(--secondary)' : 'var(--on-surface)',
+                      cursor: validCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
+                      opacity: validCurrentPage >= totalPages ? 0.4 : 1,
+                      fontSize: 12,
+                      fontWeight: 500,
+                      transition: 'all 0.15s ease'
+                    }}
+                    title="Trang tiếp theo"
+                  >
+                    <span>Sau</span>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>chevron_right</span>
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>

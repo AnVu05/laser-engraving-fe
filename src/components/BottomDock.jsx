@@ -165,38 +165,6 @@ export default function BottomDock({
         </button>
       </div>
 
-      {/* CENTER: Realtime Progress Stream */}
-      <div className="progress-stream-section">
-        <div className="progress-header-row">
-          <span className="status-indicator-tag">
-            <span className={`status-pulse-dot ${statusType}`} />
-            <span>{statusText}</span>
-          </span>
-          <span className="progress-pct-text">
-            {progress > 0 ? progress.toFixed(1) : 0}%
-          </span>
-        </div>
-
-        <div className="progress-track">
-          <div
-            className="progress-bar-fill"
-            style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
-          />
-        </div>
-
-        <div className="progress-footer-stats">
-          <span>
-            Dòng lệnh: <strong>{currentLine.toLocaleString()}</strong> / {totalLines.toLocaleString()}
-          </span>
-          <span>
-            {isRunning ? (
-              <>Thời gian: <strong>{elapsedTime}</strong> · Còn lại: ~<strong>{estimatedTime}</strong></>
-            ) : (
-              <>Thời gian ước tính: ~<strong>{estimatedTime}</strong></>
-            )}
-          </span>
-        </div>
-      </div>
 
       {/* RIGHT: Machine Triggers */}
       <div className="machine-trigger-cluster">
@@ -205,12 +173,12 @@ export default function BottomDock({
           type="button"
           className="btn-trigger-start"
           onClick={onStartJob}
-          disabled={isRunning && !isPaused}
+          title="Tạo mã G-Code và điều phối gia công tới máy Laser"
         >
           <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
-            play_arrow
+            precision_manufacturing
           </span>
-          <span>{isPaused ? 'Tiếp tục khắc' : 'Bắt đầu khắc'}</span>
+          <span>Bắt đầu khắc</span>
         </button>
 
         {/* Pause Button */}

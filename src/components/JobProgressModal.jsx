@@ -66,6 +66,7 @@ function shortHash(hash) {
  */
 function StatusBadge({ status }) {
   const map = {
+    QUEUED:                       { label: 'Hàng đợi',     bg: '#fef3c7',                      color: '#b45309' },
     SUBMITTED:                    { label: 'Đã gửi',       bg: 'var(--surface-container)',     color: 'var(--on-surface-variant)' },
     DOWNLOADING:                  { label: 'Đang tải',     bg: 'rgba(99,102,241,0.12)',         color: '#4f46e5' },
     VERIFYING:                    { label: 'Đối soát',     bg: 'rgba(99,102,241,0.12)',         color: '#4f46e5' },
@@ -467,6 +468,8 @@ export default function JobProgressModal({
   deviceCode = 'LASER-HN-001',
   sha256 = '',
   fileName = '',
+  initialStatus = null,
+  queuePosition = 1,
   onAbortJob
 }) {
   if (!isOpen) return null;
@@ -486,6 +489,7 @@ export default function JobProgressModal({
   const currentStatus = telemetryData?.status
     ?? statusData?.status
     ?? progressData?.status
+    ?? initialStatus
     ?? 'SUBMITTED';
 
   const isFailed = currentStatus === 'FAILED' || currentStatus === 'CANCELLED';
@@ -516,12 +520,7 @@ export default function JobProgressModal({
     }
   };
 
-  const handleAbort = useCallback(async () => {
-    if (window.confirm(`XÁC NHẬN DỪNG KHẨN CẤP JOB ${jobCode}?\nBo mạch sẽ tắt tia laser và dừng máy ngay lập tức.`)) {
-      await handleSendCommand('CANCEL', 'Dừng khẩn cấp từ Web Frontend');
-      onAbortJob?.(jobCode);
-    }
-  }, [jobCode, onAbortJob]);
+
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -549,10 +548,10 @@ export default function JobProgressModal({
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--secondary)' }}>
               <span
-                className={`status-pulse-dot ${isConnected ? 'running' : 'stopped'}`}
-                title={isConnected ? 'Cloud WebSocket đã kết nối' : 'Mất kết nối WebSocket'}
+                className={`status-dot ${isConnected ? 'connected' : 'disconnected'}`}
+                title={isConnected ? 'Kênh WebSocket máy chủ đã kết nối' : 'Mất kết nối máy chủ'}
               />
-              {isConnected ? 'Cloud Live' : 'Offline'}
+              {isConnected ? 'Kênh Web: Sẵn sàng' : 'Kênh Web: Mất kết nối'}
             </div>
             <button type="button" className="modal-close-btn" onClick={onClose}>
               <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
@@ -621,6 +620,29 @@ export default function JobProgressModal({
             </div>
             <JobStepper currentStatus={currentStatus} isFailed={isFailed} />
           </div>
+
+          {/* Thông báo hàng đợi khi Job đang chờ máy rảnh */}
+          {currentStatus === 'QUEUED' && (
+            <div style={{
+              backgroundColor: '#fffbeb',
+              border: '1px solid #fde68a',
+              borderRadius: 'var(--radius-md)',
+              padding: '12px 14px',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 10
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 22, color: '#d97706', marginTop: 1 }}>
+                hourglass_top
+              </span>
+              <div style={{ fontSize: 12, color: '#92400e', lineHeight: 1.5 }}>
+                <strong style={{ display: 'block', marginBottom: 2 }}>
+                  Job đang trong Hàng đợi gia công (Vị trí #{queuePosition || 1})
+                </strong>
+                Máy khắc hiện đang bận xử lý job khác. Yêu cầu của bạn đã được ghi nhận an toàn trên máy chủ. Quản máy sẽ kiểm tra phôi và phê duyệt nạp vào máy ngay khi máy rảnh.
+              </div>
+            </div>
+          )}
 
           {/* Cảnh báo an toàn khi chờ xác nhận */}
           {isAwaiting && <AwaitingConfirmationBanner />}
@@ -786,33 +808,7 @@ export default function JobProgressModal({
         </div>
 
         {/* ── FOOTER ──────────────────────────────────────────────── */}
-        <div className="modal-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-          {/* Nút dừng khẩn cấp - chỉ hiện khi Job đang hoạt động */}
-          {!isCompleted && !isFailed ? (
-            <button
-              type="button"
-              className="btn-trigger-stop"
-              disabled={isSendingCommand}
-              onClick={handleAbort}
-              title="Dừng khẩn cấp Job từ xa qua Cloud"
-              style={{
-                backgroundColor: '#fee2e2',
-                color: '#dc2626',
-                border: '1.5px solid #dc2626',
-                borderRadius: 'var(--radius-md)',
-                padding: '7px 14px',
-                fontSize: 12, fontWeight: 700,
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                cursor: isSendingCommand ? 'not-allowed' : 'pointer'
-              }}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
-                stop_circle
-              </span>
-              DỪNG KHẨN CẤP
-            </button>
-          ) : <div />}
-
+        <div className="modal-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12 }}>
           <button type="button" className="btn-header-action" onClick={onClose}>
             {isCompleted || isFailed ? 'Đóng' : 'Thu nhỏ'}
           </button>

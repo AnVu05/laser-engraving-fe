@@ -16,8 +16,42 @@ export default function Header({
   onOpenAuth,
   onLogout,
   activeJob,
-  onOpenJobProgress
+  onOpenJobProgress,
+  cloudDevice
 }) {
+  const isAdmin = Boolean(currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'OPERATOR'));
+
+  const deviceCode = cloudDevice?.deviceCode || 'LASER-HN-001';
+  const connectionStatus = (cloudDevice?.connectionStatus || 'OFFLINE').toUpperCase();
+  const isDeviceOnline = connectionStatus === 'ONLINE';
+  const isDeviceBusy = connectionStatus === 'BUSY';
+
+  let dotClass = 'status-dot disconnected';
+  let statusText = 'Offline';
+  let statusColor = 'var(--outline)';
+
+  if (isDeviceOnline) {
+    dotClass = 'status-pulse-dot running';
+    statusText = 'Online';
+    statusColor = 'var(--primary-container)';
+  } else if (isDeviceBusy) {
+    dotClass = 'status-pulse-dot paused';
+    statusText = 'Bận';
+    statusColor = 'var(--warning)';
+  } else {
+    dotClass = 'status-dot disconnected';
+    statusText = 'Offline';
+    statusColor = 'var(--outline)';
+  }
+
+  const cloudPillTitle = isAdmin
+    ? (isDeviceOnline
+        ? `Trạm máy Cloud IoT: ${deviceCode} (Trực tuyến) - Bấm để mở Quản lý máy & MKS DLC32`
+        : isDeviceBusy
+        ? `Trạm máy Cloud IoT: ${deviceCode} (Đang bận) - Bấm để theo dõi tiến độ`
+        : `Trạm máy Cloud IoT: ${deviceCode} (Ngoại tuyến / Chưa cắm điện) - Bấm để kiểm tra chi tiết`)
+    : `Trạm máy Cloud IoT: ${deviceCode} (${statusText})`;
+
   return (
     <header className="studio-header">
       <div className="header-left">
@@ -68,22 +102,34 @@ export default function Header({
           >
             Console GRBL
           </button>
-          <button
-            type="button"
-            className={`nav-tab-btn ${activeTab === 'admin-dashboard' ? 'active' : ''}`}
-            onClick={() => setActiveTab('admin-dashboard')}
-            title="Bảng điều khiển vai trò Quản lý / Admin phê duyệt an toàn và giám sát trạm máy"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4
-            }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-              admin_panel_settings
-            </span>
-            <span>Quản lý máy</span>
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              className={`nav-tab-btn ${activeTab === 'admin-dashboard' ? 'active' : ''}`}
+              onClick={() => setActiveTab('admin-dashboard')}
+              title="Bảng điều khiển vai trò Quản lý / Admin phê duyệt an toàn và giám sát trạm máy"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                admin_panel_settings
+              </span>
+              <span>Quản lý máy</span>
+              <span style={{
+                fontSize: 9,
+                fontWeight: 700,
+                padding: '1px 5px',
+                borderRadius: 4,
+                backgroundColor: 'var(--primary)',
+                color: '#ffffff'
+              }}>
+                ADMIN
+              </span>
+            </button>
+          )}
           {activeJob && (
             <button
               type="button"
@@ -109,60 +155,24 @@ export default function Header({
         {/* Cloud IoT Status Pill */}
         <div
           className="connection-status-pill"
-          onClick={() => setActiveTab('admin-dashboard')}
+          onClick={() => {
+            if (isAdmin) {
+              setActiveTab('admin-dashboard');
+            }
+          }}
           style={{
-            cursor: 'pointer',
+            cursor: isAdmin ? 'pointer' : 'default',
             backgroundColor: 'var(--surface-container-low)',
             display: 'inline-flex',
             alignItems: 'center',
             gap: 6
           }}
-          title="Bấm để xem chi tiết thông số trạm máy Cloud IoT và cấu hình MKS DLC32"
+          title={cloudPillTitle}
         >
-          <span className="status-pulse-dot running" style={{ width: 8, height: 8 }} />
-          <span>Cloud IoT: <strong style={{ color: 'var(--primary-container)' }}>LASER-HN-001</strong> (Online)</span>
+          <span className={dotClass} style={{ width: 8, height: 8 }} />
+          <span>Cloud IoT: <strong style={{ color: statusColor }}>{deviceCode}</strong> ({statusText})</span>
         </div>
 
-        {/* Machine Status Pill (USB Serial) */}
-        <div className="connection-status-pill">
-          <span
-            className={`status-dot ${
-              isConnected ? 'connected' : isConnecting ? 'busy' : 'disconnected'
-            }`}
-          />
-          <span>
-            {isConnected
-              ? `USB Cáp: Đã cắm (${portName || 'COM3'})`
-              : isConnecting
-              ? 'Đang kết nối...'
-              : 'USB Cáp: Chưa cắm'}
-          </span>
-        </div>
-
-        {isConnected ? (
-          <button
-            type="button"
-            className="btn-header-action connected"
-            onClick={onDisconnect}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-              link_off
-            </span>
-            <span>Ngắt kết nối</span>
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="btn-header-action"
-            onClick={onConnect}
-            disabled={isConnecting}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-              usb
-            </span>
-            <span>Kết nối máy</span>
-          </button>
-        )}
 
         {/* User Auth Profile & Logout Button */}
         {currentUser ? (
@@ -197,6 +207,16 @@ export default function Header({
               </div>
               <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--on-surface)', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {currentUser.name || currentUser.fullName || currentUser.email.split('@')[0]}
+              </span>
+              <span style={{
+                fontSize: 10,
+                fontWeight: 700,
+                padding: '2px 6px',
+                borderRadius: 4,
+                backgroundColor: isAdmin ? 'rgba(37, 99, 235, 0.15)' : 'rgba(100, 116, 139, 0.15)',
+                color: isAdmin ? 'var(--primary)' : 'var(--secondary)'
+              }}>
+                {currentUser.role || 'USER'}
               </span>
             </div>
 
